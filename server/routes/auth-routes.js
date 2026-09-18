@@ -147,10 +147,7 @@ export function authRouter() {
    * falls back to the chat, because a sign-in flow that will forward to an arbitrary
    * destination is a phishing tool with our domain in the address bar.
    */
-  const safeNext = (value) => {
-    const raw = String(value ?? '');
-    return /^\/[^/\\]/.test(raw) ? raw : '/chat.html';
-  };
+  const safeNext = (value) => auth.safeNext(value);
 
   router.get('/google/start', (req, res) => {
     if (!config.google.enabled) {
