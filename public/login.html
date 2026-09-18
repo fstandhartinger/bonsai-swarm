@@ -16,12 +16,12 @@
       <b id="welcome">…</b>.</p>
 
     <a class="btn google" href="/api/auth/google/start" id="google-btn">
-      <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+      <span class="g"><svg viewBox="0 0 48 48" aria-hidden="true">
         <path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h11.8c-.5 2.7-2 5-4.4 6.6v5.5h7.1c4.2-3.8 6.6-9.5 6.6-16.1z"/>
         <path fill="#34A853" d="M24 46c6 0 11-2 14.6-5.4l-7.1-5.5c-2 1.3-4.5 2.1-7.5 2.1-5.8 0-10.6-3.9-12.4-9.1H4.3v5.7C7.9 41 15.4 46 24 46z"/>
         <path fill="#FBBC05" d="M11.6 28.1c-.5-1.3-.7-2.7-.7-4.1s.3-2.8.7-4.1v-5.7H4.3A22 22 0 0 0 2 24c0 3.6.9 6.9 2.3 9.8l7.3-5.7z"/>
         <path fill="#EA4335" d="M24 10.8c3.3 0 6.2 1.1 8.5 3.3l6.3-6.3C35 4.2 30 2 24 2 15.4 2 7.9 7 4.3 14.2l7.3 5.7c1.8-5.2 6.6-9.1 12.4-9.1z"/>
-      </svg>
+      </svg></span>
       <span>Continue with Google</span>
     </a>
 
@@ -35,13 +35,15 @@
 
   <!-- What this is, before deciding whether to sign in at all. -->
   <div class="grid cols-3" id="stats" style="margin-top:26px">
-    <div class="stat"><div class="v" id="s-providers">–</div><div class="k">GPUs online</div></div>
-    <div class="stat"><div class="v" id="s-capacity">–</div><div class="k">Swarm speed, tokens/s</div></div>
+    <div class="stat"><div class="v" id="s-providers">–</div><div class="k" id="k-providers">GPUs online</div></div>
+    <div class="stat"><div class="v" id="s-capacity">–</div><div class="k">Swarm speed</div></div>
     <div class="stat"><div class="v" id="s-tokens">–</div><div class="k">Tokens served today</div></div>
   </div>
-  <p class="small muted" style="margin-top:12px;text-align:center">
-    Curious first? <a href="/">Read what Bonsai Swarm is</a> · <a href="/coins.html">how AI Coins work</a> ·
-    <a href="https://github.com/fstandhartinger/bonsai-swarm">source on GitHub ↗</a>
+  <!-- Wraps instead of running off a 390px screen; the separators were the thing that
+       would not break. -->
+  <p class="small muted signin-links">
+    Curious first? <a href="/">What Bonsai Swarm is</a> <a href="/coins.html">How AI Coins work</a>
+    <a href="https://github.com/fstandhartinger/bonsai-swarm">Source on GitHub ↗</a>
   </p>
 </main>
 <script type="module" src="/js/login.js"></script>

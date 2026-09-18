@@ -4,8 +4,10 @@
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
-export const el = (tag, props = {}, ...children) => {
+export const el = (tag, { dataset, ...props } = {}, ...children) => {
   const node = Object.assign(document.createElement(tag), props);
+  // `dataset` is a read-only accessor, so Object.assign would throw on it in a module.
+  if (dataset) for (const [k, v] of Object.entries(dataset)) node.dataset[k] = v;
   for (const c of children.flat()) {
     if (c === null || c === undefined || c === false) continue;
     node.append(c?.nodeType ? c : document.createTextNode(String(c)));
@@ -67,8 +69,11 @@ export const COIN = `
 <svg viewBox="0 0 24 24" class="coin-ico" aria-hidden="true">
   <circle cx="12" cy="12" r="10" fill="url(#cg)"/>
   <circle cx="12" cy="12" r="7.4" fill="none" stroke="rgba(0,0,0,.22)" stroke-width="1.1"/>
-  <path d="M12 7.2c-1.9 0-3.1 1-3.1 2.3 0 2.9 6.2 1.6 6.2 4.6 0 1.5-1.4 2.7-3.1 2.7s-3.2-1-3.2-2.5" fill="none" stroke="rgba(60,34,0,.75)" stroke-width="1.5" stroke-linecap="round"/>
-  <path d="M12 5.9v12.2" stroke="rgba(60,34,0,.75)" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- A sprout, not a dollar sign. The old glyph was an S over a bar, which on a page
+       promising "no money, no crypto" said exactly the opposite. -->
+  <path d="M12 17.4V9.6" fill="none" stroke="rgba(60,34,0,.78)" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M12 11.4c0-2 1.5-3.5 3.5-3.5 0 2-1.5 3.5-3.5 3.5z" fill="rgba(60,34,0,.72)"/>
+  <path d="M12 13.4c0-2-1.5-3.5-3.5-3.5 0 2 1.5 3.5 3.5 3.5z" fill="rgba(60,34,0,.55)"/>
   <defs><linearGradient id="cg" x1="3" y1="3" x2="20" y2="21">
     <stop offset="0" stop-color="#ffe6a3"/><stop offset=".45" stop-color="#ffc751"/><stop offset="1" stop-color="#e09417"/>
   </linearGradient></defs>

@@ -80,8 +80,16 @@ function renderGame(p) {
   $('#a-jobs-served').textContent = fmt.int(p.stats.jobsServed);
   $('#a-minutes').textContent = fmt.int(p.stats.minutesShared);
   $('#a-tokens-used').textContent = fmt.int(p.stats.tokensConsumed);
-  $('#a-best-tps').textContent = p.stats.bestDecodeTps ? `${p.stats.bestDecodeTps.toFixed(1)}` : '–';
+  $('#a-best-tps').textContent = p.stats.bestDecodeTps ? `${p.stats.bestDecodeTps.toFixed(1)} tok/s` : '–';
   $('#a-days').textContent = fmt.int(p.streak.days);
+
+  // These six tiles are all about providing. Somebody who has only ever chatted would
+  // read five zeros and one number, so they get the invitation instead until they have
+  // actually shared something.
+  const shared = p.stats.tokensServed || p.stats.jobsServed || p.stats.minutesShared
+    || p.stats.bestDecodeTps || p.streak.days;
+  $('#provider-stats').hidden = !shared;
+  $('#never-shared').hidden = Boolean(shared);
   $('#lb-opt').checked = Boolean(p.leaderboardOptIn);
 
   $('#badges').replaceChildren(...p.achievements.map((a) => el('div', { className: `badge${a.unlocked ? ' got' : ''}` },

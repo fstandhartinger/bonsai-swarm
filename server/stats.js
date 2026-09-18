@@ -141,7 +141,11 @@ export async function operatorReport({ days = 30 } = {}) {
     // Providers online over time, from the session rows - a session counts for every hour
     // it overlapped, so the shape of the curve is real and not a sampling artefact.
     pool.query(`
-      SELECT to_char(h.hour AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:00') AS hour,
+      -- h.hour is already a UTC timestamp *without* a zone, because the series below is
+      -- built from now() AT TIME ZONE 'UTC'. Converting it again here would hand
+      -- to_char a timestamptz, which it renders in the session's zone - on this server
+      -- Europe/Berlin - and the dashboard would label 14:00 UTC as "16:00".
+      SELECT to_char(h.hour, 'YYYY-MM-DD"T"HH24:00') AS hour,
              count(s.id) FILTER (WHERE COALESCE(u.is_house, false))::int AS house,
              count(s.id) FILTER (WHERE NOT COALESCE(u.is_house, false))::int AS community
         FROM generate_series(date_trunc('hour', now() AT TIME ZONE 'UTC') - interval '${Math.min(n, 14)} days',

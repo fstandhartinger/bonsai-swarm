@@ -129,6 +129,21 @@ test('an hour with nobody online reads zero, not one', async () => {
     'hours before the session must be empty');
 });
 
+test('the hourly provider series is labelled in UTC, whatever the server clock is set to', async () => {
+  // This server's Postgres session is Europe/Berlin. An hour bucket that is built in UTC
+  // and then formatted through the session zone comes out two hours ahead, and the
+  // dashboard axis silently lies about when a GPU was online.
+  await pool.query("SET TIME ZONE 'Europe/Berlin'");
+  try {
+    const report = await operatorReport({ days: 1 });
+    const expected = new Date().toISOString().slice(0, 14) + '00';
+    assert.equal(report.providersOnline.at(-1).hour, expected,
+      'the last bucket must be the current UTC hour');
+  } finally {
+    await pool.query('SET TIME ZONE DEFAULT');
+  }
+});
+
 test('the daily series has one entry per day, gaps filled with zero', async () => {
   const rows = [{ day: new Date().toISOString().slice(0, 10), jobs: 5 }];
   const series = densify(rows, 7, ['jobs']);

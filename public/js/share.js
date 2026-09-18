@@ -133,23 +133,34 @@ async function preflight(cfg) {
     detail: `No web API reports it. We measure the real thing instead: after the model loads, your browser is `
       + `benchmarked and needs ${cfg.minDecodeTps} tokens/s to be admitted. An RTX 3090 managed 42, an 8 GB laptop 2.5.` });
 
-  const icon = (ok) => (ok === null ? '•' : ok ? '✓' : '✕');
-  $('#checks').replaceChildren(...checks.map((c) => el('li', { className: `check ${c.ok === null ? 'note' : c.ok ? 'ok' : 'bad'}` },
-    el('span', { className: 'mark', textContent: icon(c.ok) }),
-    el('div', {}, el('b', { textContent: c.title }), el('div', { className: 'small muted', textContent: c.detail })))));
-
   const found = checks.filter((c) => c.blocking);
   // The mock provider and the admin override exist to exercise this page where there is
-  // no GPU at all (CI, the screenshot run, Sandy); they must not be stopped at the door.
+  // no GPU at all (CI, the screenshot run, Sandy). When one is on, a failed check is a
+  // note and not a verdict - a red ✕ beside a green "Online and waiting for requests"
+  // is the page contradicting itself, and a first-time visitor cannot tell which half
+  // to believe.
   const overridden = MOCK || ADMIN_OVERRIDE;
   const blockers = overridden ? [] : found;
-  $('#preflight-note').textContent = found.length
-    ? `${found.length} problem${found.length === 1 ? '' : 's'} found${overridden ? ' — overridden' : ''}`
-    : 'looks good';
+
+  const icon = (ok) => (ok === null ? '•' : ok ? '✓' : '✕');
+  const kind = (c) => {
+    if (c.ok === null || (c.blocking && overridden)) return 'note';
+    return c.ok ? 'ok' : 'bad';
+  };
+  $('#checks').replaceChildren(...checks.map((c) => el('li', { className: `check ${kind(c)}` },
+    el('span', { className: 'mark', textContent: kind(c) === 'note' ? '•' : icon(c.ok) }),
+    el('div', {}, el('b', { textContent: c.title }), el('div', { className: 'small muted', textContent: c.detail })))));
+
+  // One verdict, in one place, in plain words.
+  const verdict = overridden ? 'test mode' : blockers.length ? 'not on this machine' : 'ready';
+  $('#preflight-note').textContent = verdict;
+  $('#preflight-card').querySelector('h3').textContent = blockers.length
+    ? 'This machine cannot share yet'
+    : 'This machine can share';
   ui.startBtn.disabled = blockers.length > 0;
   ui.startBtn.textContent = `Start sharing — downloads ${fmt.bytes(need)}`;
-  $('#start-hint').textContent = found.length && !overridden
-    ? 'Sharing is switched off because of the problems above. Chatting works regardless.'
+  $('#start-hint').textContent = blockers.length
+    ? 'Sharing is switched off because of the points above. Chatting works regardless.'
     : `You earn ${cfg.coins.providePerMinute} AI Coins a minute while you are online, plus `
       + `${cfg.coins.servePerToken} for every token you generate for somebody else.`;
   if (blockers.length) {
@@ -164,9 +175,18 @@ function log(message, kind = '') {
   while (ui.log.childElementCount > 60) ui.log.lastElementChild.remove();
 }
 
+/**
+ * One status, said once. The small note in the card header used to keep whatever the
+ * last step wrote ("starting…") while the pill beside it already said "Online and
+ * waiting for requests", so the page disagreed with itself; it now follows the pill.
+ */
+const NOTE_FOR_DOT = { on: 'online', busy: 'working', bad: 'stopped' };
+
 function setStatus(text, dot = '') {
   ui.status.textContent = text;
   ui.statusDot.className = `dot ${dot}`;
+  const note = NOTE_FOR_DOT[dot];
+  if (note && state.sharing) $('#preflight-note').textContent = note;
 }
 
 async function start(cfg) {
@@ -175,10 +195,11 @@ async function start(cfg) {
   $('#checks').hidden = true;
   $('#force-wrap').hidden = true;
   $('#start-hint').hidden = true;
-  $('#preflight-note').textContent = 'starting';
-  $('#preflight-card').querySelector('h3').textContent = 'Sharing';
+  $('#preflight-note').textContent = 'starting…';
+  $('#preflight-card').querySelector('h3').textContent = 'Sharing your GPU';
   ui.pauseBtn.hidden = false;
   ui.stopBtn.hidden = false;
+  ui.startBtn.hidden = true;      // hidden, not greyed: it is not a choice right now
   ui.startBtn.disabled = true;
   state.sharing = true;
   state.startedAt = Date.now();
@@ -357,13 +378,14 @@ function stop(reason) {
   state.worker?.postMessage({ cmd: 'dispose' });
   setTimeout(() => { state.worker?.terminate?.(); state.worker = null; }, 200);
   setStatus(`Not sharing (${reason}).`);
+  ui.startBtn.hidden = false;
   ui.startBtn.disabled = false;
   ui.pauseBtn.hidden = true;
   ui.stopBtn.hidden = true;
   // Back to the question the page opened with, so a second attempt starts informed.
   $('#checks').hidden = false;
   $('#start-hint').hidden = false;
-  $('#preflight-card').querySelector('h3').textContent = 'Can this machine do it?';
+  $('#preflight-card').querySelector('h3').textContent = 'This machine can share';
   $('#preflight-note').textContent = 'not sharing';
   log(`Stopped: ${reason}.`);
 }

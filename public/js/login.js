@@ -29,6 +29,7 @@ $('#google-btn').href = `/api/auth/google/start?next=${encodeURIComponent(next)}
 try {
   const s = await api('/api/stats/public');
   $('#s-providers').textContent = fmt.int(s.providersOnline);
-  $('#s-capacity').textContent = Number(s.capacityTps || 0).toFixed(1);
+  $('#k-providers').textContent = s.providersOnline === 1 ? 'GPU online' : 'GPUs online';
+  $('#s-capacity').textContent = `${Number(s.capacityTps || 0).toFixed(1)} tok/s`;
   $('#s-tokens').textContent = fmt.int(s.tokensToday);
 } catch { /* the strip is decoration; a failure must not block signing in */ }

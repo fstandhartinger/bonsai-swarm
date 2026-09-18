@@ -84,7 +84,9 @@ body {
   background-attachment: fixed;
 }
 html[data-theme='light'] .hero h1 .grad {
-  background: linear-gradient(103deg, var(--jade) 6%, #b45309 92%);
+  /* Straight from green to amber. Interpolating in sRGB put an olive midpoint right
+     under "graphics card", which read as dirty rather than playful. */
+  background: linear-gradient(103deg, #0d7a4d 4%, #16a34a 34%, #d97706 92%);
   -webkit-background-clip: text; background-clip: text;
 }
 html[data-theme='light'] body {
@@ -100,8 +102,17 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 30px 0; }
 ::selection { background: var(--jade-dim); }
 
 /* ---------------------------------------------------------------- layout */
+/* The `hidden` attribute only sets `display: none` at the very bottom of the cascade, so
+   any rule that gives an element a display value silently un-hides it. That is why the
+   share page kept showing its checklist and its "try anyway" box while it was already
+   sharing, and why the wallet's empty-state card and its stat grid were both on screen
+   at once. One line, and `hidden` means hidden everywhere. */
+[hidden] { display: none !important; }
+
 .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 22px; width: 100%; }
-.narrow > * { max-width: 74ch; }
+/* Constrained, and centred: left-hanging at 74ch inside a 1200px page just looks
+   like the layout gave up half way across. */
+.narrow > * { max-width: 74ch; margin-inline: auto; }
 main { padding-bottom: 40px; }
 section { position: relative; }
 
@@ -125,8 +136,14 @@ p.lead { font-size: clamp(16px, 1.9vw, 19px); color: var(--ink-2); max-width: 62
 header.site {
   position: sticky; top: 0; z-index: 40;
   backdrop-filter: blur(14px) saturate(140%);
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
   border-bottom: 1px solid var(--line);
+}
+/* At 82% the page text was legible *through* the bar and collided with the nav.
+   Where there is no backdrop-filter at all there is nothing to hide behind, so the
+   bar becomes fully opaque rather than nearly transparent. */
+@supports not (backdrop-filter: blur(1px)) {
+  header.site { background: var(--bg); }
 }
 header.site .wrap { display: flex; align-items: center; gap: 18px; height: var(--header-h); }
 .brand { display: flex; align-items: center; gap: 10px; white-space: nowrap; flex: none; font-weight: 640; letter-spacing: -.02em; color: var(--ink); font-size: 16.5px; }
@@ -411,7 +428,7 @@ footer.site a:hover { color: var(--ink); }
 .conv:hover .x { opacity: 1; }
 
 .thread {
-  min-height: 42vh; display: flex; flex-direction: column; gap: 26px;
+  min-height: 26vh; display: flex; flex-direction: column; gap: 26px;
   padding: 6px 2px 10px; max-width: 720px;
 }
 .msg { display: flex; gap: 13px; }
@@ -538,8 +555,6 @@ details.think .txt { font-size: 13px; color: var(--ink-3); white-space: pre-wrap
 .path .pill { align-self: flex-start; }
 .path h2 { margin: 6px 0 0; font-size: 1.42rem; letter-spacing: -.02em; }
 .path p { margin: 0; color: var(--ink-2); font-size: 14.5px; }
-.path .go { margin-top: auto; padding-top: 12px; font-weight: 600; color: var(--jade); }
-.path.gpu .go { color: var(--gold); }
 @media (prefers-reduced-motion: reduce) { .path { transition: none; } .path:hover { transform: none; } }
 @media (max-width: 720px) { .paths { grid-template-columns: 1fr; } }
 
@@ -562,12 +577,94 @@ details.think .txt { font-size: 13px; color: var(--ink-3); white-space: pre-wrap
 .signin .lead { margin-inline: auto; max-width: 46ch; font-size: 15.5px; }
 .signin .small { margin-inline: auto; max-width: 52ch; }
 
+/* The one action this page exists for, so it gets the app's primary treatment rather
+   than the neutral grey that made it read as disabled next to the nav's "Sign in" chip.
+   Google's mark stays on its own white disc, which is how it is meant to be shown. */
 .btn.google {
-  display: inline-flex; align-items: center; justify-content: center; gap: 11px;
-  margin-top: 26px; padding: 13px 26px; font-size: 15.5px; font-weight: 600;
-  border-radius: var(--r); border: 1px solid var(--line-strong);
-  background: var(--panel-2); color: var(--ink); text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 12px;
+  margin-top: 26px; padding: 14px 28px 14px 16px; font-size: 16px; font-weight: 640;
+  border-radius: 999px; border-color: transparent; color: #04170e;
+  background: linear-gradient(135deg, var(--jade), var(--jade-deep));
+  box-shadow: 0 12px 34px -14px color-mix(in srgb, var(--jade) 85%, transparent);
+  text-decoration: none;
 }
-.btn.google:hover, .btn.google:focus-visible { border-color: var(--jade); box-shadow: var(--glow-jade); }
-.btn.google svg { flex: 0 0 20px; }
-.btn.google.disabled { opacity: .5; pointer-events: none; }
+html[data-theme='light'] .btn.google { color: #fff; background: #0d7a4d; box-shadow: 0 10px 26px -14px rgba(13, 122, 77, .85); }
+.btn.google:hover, .btn.google:focus-visible { transform: translateY(-1px); box-shadow: var(--glow-jade); }
+html[data-theme='light'] .btn.google:hover { background: #0a6641; }
+.btn.google .g { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #fff; }
+.btn.google .g svg { width: 18px; height: 18px; }
+.btn.google.disabled { filter: saturate(.18) contrast(.9); box-shadow: none; pointer-events: none; }
+
+/* The two paths on the landing page end in something that looks pressable, because the
+   green "Sign in" chip in the nav was otherwise the strongest control on the screen -
+   and it is not what a first-time visitor should reach for. */
+.path .go {
+  margin-top: auto; align-self: flex-start;
+  padding: 10px 19px; border-radius: 999px; font-weight: 640; font-size: 14.6px;
+  background: linear-gradient(135deg, var(--jade), var(--jade-deep)); color: #04170e;
+  box-shadow: 0 10px 30px -16px color-mix(in srgb, var(--jade) 80%, transparent);
+}
+html[data-theme='light'] .path .go { background: #0d7a4d; color: #fff; }
+.path.gpu .go {
+  background: transparent; color: var(--gold);
+  border: 1px solid color-mix(in srgb, var(--gold) 55%, transparent); box-shadow: none;
+}
+html[data-theme='light'] .path.gpu .go { color: #8a5a06; border-color: color-mix(in srgb, #8a5a06 45%, transparent); }
+.path:hover .go { transform: translateY(-1px); }
+
+
+/* ------------------------------------------------ the leaderboard on a phone
+   Five columns in 390px crushed "AI COINS EARNED" onto three lines and clipped
+   "TOKENS SERVED" at the card edge. Below 600px each entry becomes a stacked row:
+   who, then what they did, with the numbers labelled so they still mean something. */
+@media (max-width: 600px) {
+  .board thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .board, .board tbody, .board tr, .board td { display: block; width: 100%; }
+  .board tr {
+    padding: 13px 0; border-bottom: 1px solid var(--line);
+    display: grid; grid-template-columns: 34px 1fr; column-gap: 10px; align-items: baseline;
+  }
+  .board tr:last-child { border-bottom: 0; }
+  .board td { border: 0; padding: 0; text-align: left; }
+  .board td:nth-child(1) { grid-row: 1 / span 2; font-weight: 700; color: var(--ink-3); }
+  .board td:nth-child(2) { font-weight: 640; font-size: 15px; }
+  .board td:nth-child(3) { margin-top: 4px; }
+  .board td:nth-child(n+4) {
+    display: inline-flex; gap: 6px; margin: 7px 14px 0 0;
+    font-size: 13px; color: var(--ink-2); grid-column: 2;
+  }
+  .board td:nth-child(n+4)::before { content: attr(data-label) ':'; color: var(--ink-3); }
+  .board td:nth-child(4), .board td:nth-child(5), .board td:nth-child(6) { grid-row: 3; width: auto; }
+}
+
+/* The line under the sign-in card wraps rather than running off a 390px screen, and the
+   three stat tiles above it stay legible when they have to stack. */
+.signin-links {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 16px;
+  margin-top: 14px; text-align: center;
+}
+@media (max-width: 560px) {
+  #stats.cols-3 { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  #stats.cols-3 .stat { padding: 12px 8px; }
+  #stats.cols-3 .stat .v { font-size: 22px; }
+  #stats.cols-3 .stat .k { font-size: 11px; }
+}
+
+/* In light mode the empty part of the level ring was --panel-2, which is near-white on
+   a near-white card: at level 1 the ring simply vanished and left a hole above
+   "Balance". The track needs to be visible even when nothing has been earned yet. */
+html[data-theme='light'] .ring::before {
+  background: conic-gradient(#0d7a4d calc(var(--p) * 1%), #dfe5e1 0);
+  box-shadow: 0 0 18px -8px rgba(13, 122, 77, .5);
+}
+
+
+/* A toast is a remark, not a modal: it never takes a click (#toasts is
+   `pointer-events: none`). On a phone the bottom of the screen is where the buttons are
+   - it covered "Start sharing" outright - so there it comes down from the top instead.
+   This sits at the end of the file deliberately: the narrow-screen block further up
+   re-sets `bottom`, and both offsets together stretch the container over the page. */
+@media (max-width: 720px) {
+  #toasts { top: calc(var(--header-h) + 10px); bottom: auto; flex-direction: column; }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(-16px) scale(.94); } }
+}

@@ -22,14 +22,26 @@
         <div class="small muted" id="level-progress">—</div>
       </div>
       <div class="grid cols-3" style="flex:2;min-width:260px">
-        <div class="stat"><div class="v" id="a-earned">–</div><div class="k">Earned by sharing</div></div>
-        <div class="stat"><div class="v" id="a-spent">–</div><div class="k">Spent on answers</div></div>
+        <div class="stat"><div class="v" id="a-earned">–</div><div class="k">AI Coins earned by sharing</div></div>
+        <div class="stat"><div class="v" id="a-spent">–</div><div class="k">AI Coins spent on answers</div></div>
         <div class="stat"><div class="v" id="a-streak">0</div><div class="k">Day streak 🔥</div></div>
       </div>
     </div>
   </div>
 
-  <div class="grid cols-3" style="margin-top:16px">
+  <!-- Somebody who has never shared a GPU met six tiles reading "0", which is a poor
+       first impression of their own account. They get the invitation instead; the tiles
+       appear the moment there is something in them. -->
+  <div class="card raised" id="never-shared" hidden style="margin-top:16px;display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+    <div style="flex:1;min-width:240px">
+      <h3 style="margin:0 0 4px">You haven't shared a GPU yet</h3>
+      <p class="small muted" style="margin:0;max-width:56ch">Keep a tab open while your graphics card is idle and it
+        answers other people's questions — that is where AI Coins come from. Your numbers will appear here.</p>
+    </div>
+    <a class="btn primary" href="/share.html">Share my GPU</a>
+  </div>
+
+  <div class="grid cols-3" id="provider-stats" hidden style="margin-top:16px">
     <div class="stat"><div class="v" id="a-tokens-served">0</div><div class="k">Tokens served for others</div></div>
     <div class="stat"><div class="v" id="a-jobs-served">0</div><div class="k">Requests answered</div></div>
     <div class="stat"><div class="v" id="a-minutes">0</div><div class="k">Minutes shared</div></div>

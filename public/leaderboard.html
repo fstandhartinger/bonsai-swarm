@@ -14,19 +14,15 @@
     <a href="/wallet.html">wallet page</a> whether you appear here.</p>
 
   <div class="card" style="margin-top:20px">
-    <div id="empty">
-      <table style="opacity:.5">
-        <thead><tr><th style="width:52px">#</th><th>Provider</th><th>Level</th><th class="num">AI Coins earned</th><th class="num">Tokens served</th></tr></thead>
-        <tbody>
-          <tr style="color:var(--jade)"><td>🥇</td><td><b>This could be you</b></td><td><span class="pill jade">1 · Seedling</span></td><td class="num">—</td><td class="num">—</td></tr>
-          <tr><td>🥈</td><td class="muted">—</td><td class="muted">—</td><td class="num muted">—</td><td class="num muted">—</td></tr>
-          <tr><td>🥉</td><td class="muted">—</td><td class="muted">—</td><td class="num muted">—</td><td class="num muted">—</td></tr>
-        </tbody>
-      </table>
-      <p class="small muted" style="margin:14px 0 0">Nobody has opted in yet. Share your GPU and switch the
-        leaderboard on in your wallet to take the top spot.</p>
+    <!-- Two rows of em-dashes under a silver and a bronze medal read as a failed load,
+         not as an invitation. The invitation on its own says more. -->
+    <div id="empty" style="text-align:center;padding:26px 10px">
+      <div style="font-size:40px;line-height:1">🥇</div>
+      <p class="lead" style="margin:10px auto 0;max-width:44ch">The top spot is open.</p>
+      <p class="small muted" style="margin:8px auto 0;max-width:52ch">Nobody has opted in yet. Share your GPU and
+        switch the leaderboard on in your wallet to take it.</p>
     </div>
-    <table id="tbl" hidden>
+    <table id="tbl" class="board" hidden>
       <thead><tr><th style="width:52px">#</th><th>Provider</th><th>Level</th><th class="num">AI Coins earned</th><th class="num">Tokens served</th><th class="num">Requests</th></tr></thead>
       <tbody></tbody>
     </table>
@@ -54,9 +50,11 @@ if (entries.length) {
     el('td', { className: 'muted', textContent: medal(e.rank) }),
     el('td', {}, el('b', { textContent: e.name })),
     el('td', {}, el('span', { className: 'pill jade', textContent: `${e.level.level} · ${e.level.name}` })),
-    el('td', { className: 'num', textContent: fmt.coins(e.earned) }),
-    el('td', { className: 'num', textContent: fmt.int(e.tokensServed) }),
-    el('td', { className: 'num', textContent: fmt.int(e.jobsServed) }))));
+    // data-label is what the stacked mobile layout puts in front of each number,
+    // because without the header row above them they are just three integers.
+    el('td', { className: 'num', textContent: fmt.coins(e.earned), dataset: { label: 'AI Coins' } }),
+    el('td', { className: 'num', textContent: fmt.int(e.tokensServed), dataset: { label: 'Tokens' } }),
+    el('td', { className: 'num', textContent: fmt.int(e.jobsServed), dataset: { label: 'Requests' } }))));
 }
 </script>
 </body>
