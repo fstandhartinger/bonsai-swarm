@@ -70,13 +70,28 @@ export const CHROME_FLAGS = [
   '--disable-features=CalculateNativeWinOcclusion',
 ];
 
-export function buildArgs({ url, token, profileDir, extraFlags = [], override = false }) {
+/**
+ * Linux Chrome usually needs to be told to use Vulkan before WebGPU shows up at all
+ * (and a headless server needs the GPU blocklist ignored).
+ */
+export const LINUX_WEBGPU_FLAGS = [
+  '--enable-unsafe-webgpu',
+  '--enable-features=Vulkan',
+  '--use-angle=vulkan',
+  '--ignore-gpu-blocklist',
+  '--enable-gpu-rasterization',
+];
+
+export function buildArgs({ url, token, profileDir, extraFlags = [], override = false, autostart = true }) {
   const target = new URL('/share.html', url);
   if (override) target.searchParams.set('override', '1');
+  // The user asked for `provide` on the command line, so the page does not ask again.
+  if (autostart) target.searchParams.set('autostart', '1');
   // The token travels in the fragment: fragments are never sent to a server and never
   // appear in an access log.
   return [
     ...CHROME_FLAGS,
+    ...(process.platform === 'linux' ? LINUX_WEBGPU_FLAGS : []),
     ...extraFlags,
     `--user-data-dir=${profileDir}`,
     '--new-window',

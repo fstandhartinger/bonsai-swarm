@@ -21,19 +21,7 @@
   </div>
 
   <div class="card raised" style="margin-top:22px">
-    <div class="notice danger">
-      <b>Read this before you start.</b>
-      <ul>
-        <li>The model is downloaded once: about <b id="download-size">5.9 GB</b>, kept in this browser's storage.</li>
-        <li>It needs roughly 8–10 GB of GPU memory and up to ~10 GB of extra system RAM while loaded.</li>
-        <li><b>Other people's prompts run on your machine.</b> They are never stored, but they pass through your browser.</li>
-        <li>Your browser is speed-tested first. Below <b id="min-tps">10</b> tokens/s you can still chat, but the swarm
-          will not send you anyone else's work.</li>
-        <li>Nothing else leaves this page: no files, no screen, no other tabs.</li>
-      </ul>
-    </div>
-
-    <div class="row" style="margin-top:18px">
+    <div class="row">
       <button id="start" class="primary">Start sharing</button>
       <button id="pause" hidden>Pause</button>
       <button id="stop" class="ghost">Stop</button>
@@ -42,6 +30,24 @@
     <div id="progress" hidden style="margin-top:18px">
       <div class="small muted label">preparing…</div>
       <div class="bar" style="margin-top:7px"><i style="width:0"></i></div>
+    </div>
+
+    <div class="notice danger" style="margin-top:18px">
+      <b>Two things to know first.</b>
+      <ul>
+        <li>The model is downloaded once: about <b id="download-size">5.9 GB</b>, kept in this browser's storage,
+          and it needs ~8–10 GB of GPU memory.</li>
+        <li><b>Other people's prompts run on your machine.</b> They are never stored, but they pass through your browser.</li>
+      </ul>
+      <details style="margin-top:10px">
+        <summary class="small muted" style="cursor:pointer">What else?</summary>
+        <ul style="margin-top:8px">
+          <li>Up to ~10 GB of extra system RAM is used while the model is loaded.</li>
+          <li>Your browser is speed-tested first. Below <b id="min-tps">10</b> tokens/s you can still chat, but the
+            swarm will not send you anyone else's work.</li>
+          <li>Nothing else leaves this page: no files, no screen, no other tabs.</li>
+        </ul>
+      </details>
     </div>
   </div>
 

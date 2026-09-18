@@ -10,6 +10,9 @@ const params = new URLSearchParams(location.search);
 const MOCK = params.get('provider') === 'mock';
 const TEST_KEY = params.get('testKey') || '';
 const ADMIN_OVERRIDE = params.get('override') === '1';
+// The downloadable client opens this page because the user typed `provide`; it does not
+// need a second click. Never set for somebody who just browsed here.
+const AUTOSTART = params.get('autostart') === '1';
 
 const state = {
   sharing: false,
@@ -66,6 +69,7 @@ async function boot() {
   window.addEventListener('beforeunload', () => { try { state.ws?.close(); } catch { /* closing anyway */ } });
   setInterval(refreshStats, 15000);
   refreshStats();
+  if (AUTOSTART) start(cfg);
 }
 
 function log(message, kind = '') {

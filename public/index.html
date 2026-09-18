@@ -29,14 +29,16 @@
 
   <section class="wrap">
     <div class="grid cols-3" id="stats">
-      <div class="stat accent"><div class="v" id="s-providers">–</div><div class="k">GPUs online</div></div>
-      <div class="stat"><div class="v" id="s-ready">–</div><div class="k">Ready to answer right now</div></div>
-      <div class="stat"><div class="v" id="s-capacity">–</div><div class="k">Swarm speed (tokens/s)</div></div>
-      <div class="stat coin"><div class="v" id="s-tokens">–</div><div class="k">Tokens served today</div></div>
-      <div class="stat"><div class="v" id="s-queue">–</div><div class="k">Requests waiting</div></div>
-      <div class="stat"><div class="v" id="s-accounts">–</div><div class="k">Accounts</div></div>
+      <div class="stat hero-tile accent"><div class="v" id="s-providers">–</div><div class="k">GPUs online</div></div>
+      <div class="stat hero-tile"><div class="v" id="s-capacity">–</div><div class="k">Swarm speed, tokens/s</div></div>
+      <div class="stat hero-tile coin"><div class="v" id="s-tokens">–</div><div class="k">Tokens served today</div></div>
     </div>
-    <p class="small muted" style="margin-top:10px">Every number on this page comes straight out of the ledger. Nothing here is decoration.</p>
+    <div class="row small muted" style="margin-top:12px;gap:22px">
+      <span><b class="num" id="s-ready" style="color:var(--ink)">–</b> ready right now</span>
+      <span><b class="num" id="s-queue" style="color:var(--ink)">–</b> requests waiting</span>
+      <span><b class="num" id="s-accounts" style="color:var(--ink)">–</b> accounts</span>
+      <span style="margin-left:auto">Every number here comes straight out of the ledger.</span>
+    </div>
   </section>
 
   <section class="wrap">

@@ -14,7 +14,18 @@
     <a href="/wallet.html">wallet page</a> whether you appear here.</p>
 
   <div class="card" style="margin-top:20px">
-    <div class="muted small" id="empty">Nobody has opted in yet. Be the first.</div>
+    <div id="empty">
+      <table style="opacity:.5">
+        <thead><tr><th style="width:52px">#</th><th>Provider</th><th>Level</th><th class="num">AI Coins earned</th><th class="num">Tokens served</th></tr></thead>
+        <tbody>
+          <tr style="color:var(--jade)"><td>🥇</td><td><b>This could be you</b></td><td><span class="pill jade">1 · Seedling</span></td><td class="num">—</td><td class="num">—</td></tr>
+          <tr><td>🥈</td><td class="muted">—</td><td class="muted">—</td><td class="num muted">—</td><td class="num muted">—</td></tr>
+          <tr><td>🥉</td><td class="muted">—</td><td class="muted">—</td><td class="num muted">—</td><td class="num muted">—</td></tr>
+        </tbody>
+      </table>
+      <p class="small muted" style="margin:14px 0 0">Nobody has opted in yet. Share your GPU and switch the
+        leaderboard on in your wallet to take the top spot.</p>
+    </div>
     <table id="tbl" hidden>
       <thead><tr><th style="width:52px">#</th><th>Provider</th><th>Level</th><th class="num">AI Coins earned</th><th class="num">Tokens served</th><th class="num">Requests</th></tr></thead>
       <tbody></tbody>

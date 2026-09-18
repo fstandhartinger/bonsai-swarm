@@ -226,7 +226,7 @@ async function refreshNetwork() {
     $('#network-dot').className = `dot ${stats.providersReady ? 'on' : 'bad'}`;
     if (me.signedIn) {
       setBalance(me.user.balance);
-      $('#balance-hint').textContent = `${fmt.coins(me.user.balance)} AI Coins left`;
+      $('#balance-hint').textContent = Number(me.user.balance) < 200 ? 'Low on AI Coins — earn more' : 'Earn AI Coins';
     }
   } catch { /* transient */ }
 }

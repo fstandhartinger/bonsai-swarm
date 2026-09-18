@@ -99,6 +99,12 @@ const NAV = [
 let walletEl = null;
 let walletValue = 0;
 
+async function signOut(event) {
+  event.preventDefault();
+  await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  location.href = '/';
+}
+
 export async function mountChrome({ me: preloaded } = {}) {
   const me = preloaded || await api('/api/me').catch(() => ({ signedIn: false }));
   const here = location.pathname === '/index.html' ? '/' : location.pathname;
@@ -110,12 +116,23 @@ export async function mountChrome({ me: preloaded } = {}) {
       textContent: label,
     })));
 
+  const menuBtn = el('button', { className: 'icon-btn ghost nav-toggle', ariaLabel: 'Menu', title: 'Menu' });
+  menuBtn.append(svg('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>'));
+  const sheet = el('div', { className: 'sheet', hidden: true },
+    NAV.map(([href, label]) => el('a', { href, className: href === here ? 'active' : '', textContent: label })),
+    me.signedIn
+      ? el('a', { href: '#', textContent: 'Sign out', onclick: signOut })
+      : el('a', { href: '/login.html', textContent: 'Sign in' }));
+  menuBtn.onclick = () => { sheet.hidden = !sheet.hidden; };
+  nav.append(menuBtn);
+
   const themeBtn = el('button', { className: 'icon-btn ghost', title: 'Light / dark', ariaLabel: 'Toggle theme' });
   themeBtn.append(svg(`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>`));
   themeBtn.onclick = () => applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
   nav.append(themeBtn);
 
   if (me.signedIn) {
+    nav.append(el('a', { href: '#', className: 'nav hide-sm', textContent: 'Sign out', onclick: signOut }));
     walletValue = Number(me.user.balance) || 0;
     walletEl = el('a', { className: 'wallet', href: '/wallet.html', title: 'Your AI Coins' });
     walletEl.append(svg(COIN), el('span', { className: 'num roll', textContent: fmt.coins(walletValue) }));
@@ -126,9 +143,10 @@ export async function mountChrome({ me: preloaded } = {}) {
 
   const header = el('header', { className: 'site' },
     el('div', { className: 'wrap' },
-      el('a', { className: 'brand', href: '/' }, svg(MARK), 'Bonsai Swarm'),
+      el('a', { className: 'brand', href: '/' }, svg(MARK), el('span', { textContent: 'Bonsai Swarm' })),
       nav));
   document.body.prepend(header);
+  header.after(sheet);
 
   document.body.append(el('footer', { className: 'site' },
     el('div', { className: 'wrap' },
