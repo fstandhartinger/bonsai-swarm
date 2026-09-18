@@ -221,8 +221,15 @@ async function start(cfg) {
       : 'The browser would not mark storage as persistent; the model may have to be downloaded again later.');
   }
 
+  if (MOCK) {
+    // The fake worker only starts after the coordinator confirms isMock. A visitor
+    // with `?provider=mock&testKey=anything` must not earn as a real GPU.
+    setStatus('Checking test mode with the coordinator...', 'busy');
+    connect(cfg);
+    return;
+  }
   setStatus('Starting the inference worker...', 'busy');
-  state.worker = MOCK ? mockWorker() : new Worker('/js/bonsai-worker.js', { type: 'module' });
+  state.worker = new Worker('/js/bonsai-worker.js', { type: 'module' });
   state.worker.onmessage = (e) => onWorkerMessage(e.data, cfg);
   state.worker.onerror = (e) => { log(`Worker error: ${e.message}`, 'error'); stop('the worker crashed'); };
   state.worker.postMessage({ cmd: 'check' });
@@ -326,6 +333,11 @@ function connect(cfg) {
       state.worker?.postMessage({ cmd: 'cancel', jobId: state.currentJobId });
       state.currentJobId = null;
     }
+    if (MOCK && !state.worker) {
+      log('The coordinator refused mock mode (missing or wrong test key).', 'error');
+      stop('mock refused');
+      return;
+    }
     if (!state.sharing) return;
     setStatus('Connection lost - reconnecting...', 'busy');
     log('Connection to the coordinator lost, retrying in 5 s.', 'error');
@@ -341,6 +353,19 @@ function send(msg) {
 function onServerMessage(msg, cfg) {
   switch (msg.type) {
     case 'welcome':
+      if (MOCK) {
+        if (!msg.config?.isMock) {
+          log('The coordinator refused mock mode. The test key must match TEST_MODE_KEY.', 'error');
+          stop('mock refused');
+          return;
+        }
+        if (!state.worker) {
+          state.worker = mockWorker();
+          state.worker.onmessage = (e) => onWorkerMessage(e.data, cfg);
+          state.worker.onerror = (e) => { log(`Worker error: ${e.message}`, 'error'); stop('the worker crashed'); };
+          state.worker.postMessage({ cmd: 'check' });
+        }
+      }
       // After a reconnect the model is still loaded - just replay the measurement.
       if (state.benchmarkDone) {
         send({ type: 'benchmark', decodeTps: state.decodeTps, ttftMs: 0 });
