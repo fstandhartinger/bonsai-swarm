@@ -141,20 +141,25 @@ async function serve() {
   const host = String(flag('host', '127.0.0.1'));
   const server = createLocalServer({ url, token, verbose: has('verbose') });
   server.listen(port, host, () => {
-    console.log(`Bonsai Swarm gateway on http://${host}:${port}`);
+    const addr = server.address();
+    const boundHost = addr && typeof addr === 'object' ? addr.address : host;
+    const boundPort = addr && typeof addr === 'object' ? addr.port : port;
+    const displayHost = boundHost === '::' ? '0.0.0.0' : boundHost === '::1' ? '127.0.0.1' : boundHost;
+    console.log(`Bonsai Swarm gateway on http://${displayHost}:${boundPort}`);
     console.log(`  upstream            ${url}`);
     console.log(`  model               ${MODEL_ID}`);
     console.log('  OpenAI chat         POST /v1/chat/completions');
     console.log('  OpenAI responses    POST /v1/responses');
     console.log('  Anthropic messages  POST /v1/messages');
     console.log('\nPoint a tool at it, for example:');
-    console.log(`  export OPENAI_BASE_URL=http://${host}:${port}/v1`);
+    console.log(`  export OPENAI_BASE_URL=http://${displayHost}:${boundPort}/v1`);
     console.log('  export OPENAI_API_KEY=local');
-    console.log(`  export ANTHROPIC_BASE_URL=http://${host}:${port}`);
+    console.log(`  export ANTHROPIC_BASE_URL=http://${displayHost}:${boundPort}`);
     console.log('  export ANTHROPIC_API_KEY=local');
-    const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+    const loopback = boundHost === '127.0.0.1' || boundHost === '::1' || boundHost === 'localhost'
+      || boundHost === '::ffff:127.0.0.1';
     if (loopback) console.log('\nThis listens on localhost only. Ctrl-C to stop.');
-    else console.log(`\nWARNING: bound to ${host}. Anyone who can reach this port can spend your AI Coins.`);
+    else console.log(`\nWARNING: bound to ${boundHost}. Anyone who can reach this port can spend your AI Coins.`);
   });
   process.on('SIGINT', () => { server.close(); process.exit(0); });
 }
