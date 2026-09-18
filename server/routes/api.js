@@ -6,6 +6,7 @@ import { publicUser } from './auth-routes.js';
 import { recentLedger, auditBalance } from '../coins.js';
 import { RateLimiter, clientIp } from '../util.js';
 import { runtimeStatus } from '../runtime.js';
+import { publicFallbackInfo } from '../fallback.js';
 import * as game from '../gamification.js';
 
 const chatLimiter = new RateLimiter(config.limits.chatPerMinute, 60_000);
@@ -56,8 +57,15 @@ export function sseSink(res, { onDoneExtra } = {}) {
     close: () => { closed = true; try { res.end(); } catch { /* already ended */ } },
     isClosed: () => closed,
     sink: {
+      // The browser keeps only what it has been sent, so it can always start the answer
+      // over - which is what lets a job that lost its volunteer move to the fallback.
+      canReset: true,
       onQueued: (d) => write('queued', d),
       onAssigned: (d) => write('assigned', d),
+      // The swarm could not answer; a free hosted model is answering instead, and the
+      // consumer is told so before the first word of it arrives.
+      onFallback: (d) => write('fallback', d),
+      onReset: (d) => write('reset', d),
       onDelta: (d) => write('delta', d),
       onDone: (d) => { write('done', { ...d, ...(onDoneExtra?.(d) || {}) }); closed = true; try { res.end(); } catch { /* already ended */ } },
       onError: (d) => { write('error', d); closed = true; try { res.end(); } catch { /* already ended */ } },
@@ -95,6 +103,7 @@ export function apiRouter(coordinator) {
       model: config.model,
       minDecodeTps: config.provider.minDecodeTps,
       runtime: runtimeStatus(),
+      fallback: publicFallbackInfo(),
     });
   });
 
@@ -108,6 +117,8 @@ export function apiRouter(coordinator) {
       defaultMaxNewTokens: config.jobs.defaultMaxNewTokens,
       maxPromptChars: config.jobs.maxPromptChars,
       googleEnabled: config.google.enabled,
+      // Labels and limits only - never an endpoint and never a key.
+      fallback: publicFallbackInfo(),
     });
   });
 
@@ -149,7 +160,7 @@ export function apiRouter(coordinator) {
   router.get('/jobs', auth.requireAuth, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, status, prompt_tokens, completion_tokens, decode_tps, duration_ms, created_at,
-              (consumer_id = $1) AS as_consumer
+              served_by, fallback_model, (consumer_id = $1) AS as_consumer
          FROM jobs WHERE consumer_id = $1 OR provider_user_id = $1
         ORDER BY created_at DESC LIMIT 50`, [req.user.id]);
     res.json({ jobs: rows });
@@ -195,6 +206,10 @@ export function apiRouter(coordinator) {
       'cache-control': 'no-cache, no-transform',
       connection: 'keep-alive',
       'x-accel-buffering': 'no',
+      // The route chosen when the response opened. A job that only later loses its
+      // volunteer carries a `fallback` event and a `servedBy` in the final `done`,
+      // which are the authoritative answer.
+      'x-bonsai-served-by': coordinator.likelyRoute(),
     });
     res.flushHeaders?.();
 
@@ -206,6 +221,7 @@ export function apiRouter(coordinator) {
         messages,
         maxNewTokens: req.body?.maxTokens,
         enableThinking: Boolean(req.body?.thinking),
+        clientIp: clientIp(req, { trustProxy: config.trustProxy }),
         sink,
       });
     } catch (err) {

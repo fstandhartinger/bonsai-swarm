@@ -17,8 +17,11 @@ export class MockProvider {
     // `deltaText` lets a test play the part of a *malicious* provider that tries to bill
     // a whole paragraph as one token.
     deltaText = null,
+    // `dropAfter` plays a volunteer whose laptop lid closes mid-answer: it streams this
+    // many tokens and then vanishes without ever sending job.done.
+    dropAfter = null,
   }) {
-    Object.assign(this, { url, token, testKey, decodeTps, tokens, delayMs, override, label, deltaText });
+    Object.assign(this, { url, token, testKey, decodeTps, tokens, delayMs, override, label, deltaText, dropAfter });
     this.served = 0;
     this.cancelled = new Set();
     this.ready = new Promise((resolve, reject) => { this._resolveReady = resolve; this._rejectReady = reject; });
@@ -72,6 +75,7 @@ export class MockProvider {
       if (this.cancelled.has(job.jobId)) return;
       await new Promise((r) => setTimeout(r, this.delayMs));
       this.send({ type: 'job.delta', jobId: job.jobId, delta: this.deltaText ?? (i === 0 ? 'mock' : ` t${i}`) });
+      if (this.dropAfter !== null && i + 1 >= this.dropAfter) { this.close(); return; }
     }
     if (this.cancelled.has(job.jobId)) return;
     this.served += 1;

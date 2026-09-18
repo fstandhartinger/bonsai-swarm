@@ -42,6 +42,8 @@ roughly fair with a points ledger instead of a payment system.
 * **The coordinator** counts the tokens it actually relayed. A modified browser cannot
   claim work it did not do, and never learns who the consumer is.
 * **Prompts are never stored.** Only aggregate counters per job survive a request.
+* **When the swarm is empty, a free fallback model answers** — and every such answer says
+  so. See below; it is optional and off unless you configure an upstream.
 
 ### AI Coins
 
@@ -52,6 +54,7 @@ roughly fair with a points ledger instead of a payment system.
 | Generating for someone else — per token | `+0.5` |
 | Your prompt — per token | `−0.1` |
 | Your answer — per token | `−0.5` |
+| An answer from the free fallback model — flat, per answer | `−5` |
 
 Rules that are enforced, not just documented (see `tests/unit/network.test.js`):
 
@@ -59,12 +62,40 @@ Rules that are enforced, not just documented (see `tests/unit/network.test.js`):
 * you never get your own prompts, so you cannot mint coins in a circle;
 * only live, admitted, heartbeat-answering minutes are credited; loading earns nothing;
 * a provider that drops before the first token is paid nothing and the job is re-queued;
+* a fallback answer pays nobody and costs a flat rate, whatever its length;
 * the ledger is append-only, `users.balance` is only a cache, and
   `auditBalance()` re-derives it from the rows.
 
 Levels, day streaks, achievements and the (opt-in) leaderboard are all **derived from
 the same ledger** in `server/gamification.js` — there is no second set of numbers that
 could drift, and a browser can never award itself a badge.
+
+## When nobody is online
+
+A peer-to-peer network is empty until it isn't, and somebody who watches a spinner for
+two minutes before reading *"no GPU picked this up"* does not come back. So the
+coordinator can hand a job to a **free fallback model** instead — when no admitted GPU
+is in the network at all, when nobody has picked the job up after ~20 seconds, or when
+the volunteer answering you disappears mid-sentence.
+
+It is never a silent substitute:
+
+* the chat shows, above the answer,
+  *"No community GPU online right now — answered by a free fallback model (&lt;model&gt;)"*;
+* the API sends `x-bonsai-served-by: fallback` and, in the body,
+  `bonsai_swarm.served_by` plus `bonsai_swarm.fallback_model`. A real swarm answer says
+  `community` and keeps its volunteer label;
+* **no volunteer earns AI Coins for it** — nobody did the work — so it counts towards no
+  level, badge, streak or leaderboard position;
+* it costs a **flat, reduced** 5 AI Coins instead of the per-token price;
+* it is rationed per account, per address and per day, because unlike the swarm it costs
+  somebody real money. When the budget is gone the request waits for a real GPU, as before.
+
+Any OpenAI-compatible endpoint works, and several can be listed and are tried in order —
+an upstream that errors, stalls, or (like a reasoning model on a short budget) returns
+nothing but thoughts is skipped. Endpoints and keys come from the environment only, so
+none of them is in this repository; see `.env.example`. Configure nothing and the feature
+is off, leaving a purely peer-to-peer network.
 
 ## Repository layout
 
@@ -75,6 +106,7 @@ public/           the web app (vanilla ES modules, no build step)
   js/bonsai-worker.js   the Web Worker that actually runs the model
 client/           the downloadable CLI: provide from a real Chrome, consume via
                   OpenAI / OpenAI-Responses / Anthropic-Messages endpoints
+  fallback.js     the free fallback model: upstreams tried in order, always labelled
 tests/unit/       auth, ledger and coordinator tests against a real Postgres
 tests/e2e/        Playwright tests against a running deployment
 ```

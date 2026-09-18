@@ -2,7 +2,7 @@ import { pool, withTransaction } from './db.js';
 import { config } from './config.js';
 import { roundCoins } from './util.js';
 
-export const KINDS = ['welcome', 'provide_minutes', 'serve_tokens', 'consume_tokens', 'admin_adjust'];
+export const KINDS = ['welcome', 'provide_minutes', 'serve_tokens', 'consume_tokens', 'consume_fallback', 'admin_adjust'];
 
 /**
  * Append one row to the ledger and move the cached balance in the same transaction.

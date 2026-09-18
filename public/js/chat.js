@@ -80,7 +80,8 @@ function renderMessages() {
   if (!conv.messages.length) {
     box.append(el('div', { className: 'notice info' },
       'Ask anything. Your prompt goes to one volunteer\'s browser, which answers with Ternary Bonsai 2 27B '
-      + 'and earns AI Coins for it. Please don\'t send personal or confidential data.'));
+      + 'and earns AI Coins for it. If no GPU is online, a free fallback model answers instead and says so. '
+      + 'Please don\'t send personal or confidential data.'));
   }
   for (const m of conv.messages) box.append(messageNode(m));
   scrollDown();
@@ -92,6 +93,7 @@ function messageNode(message) {
   const node = el('div', { className: `msg ${message.role}` },
     el('div', { className: 'av', textContent: message.role === 'user' ? 'You' : '🌳' }));
   const body = el('div', { className: 'body' });
+  if (message.fallback) body.append(el('div', { className: 'notice warn fallback-note', textContent: message.fallback }));
   if (message.reasoning) {
     body.append(el('details', { className: 'think' },
       el('summary', { textContent: 'Reasoning' }),
@@ -163,6 +165,31 @@ async function onSend() {
         meta.replaceChildren(document.createTextNode(
           `answering on ${d.providerLabel}${d.decodeTps ? ` · ~${d.decodeTps.toFixed(0)} tok/s` : ''}`));
       },
+      // Nobody was online (or the volunteer vanished). Say so, above the answer, before
+      // a single word of it arrives.
+      fallback: (d) => {
+        // Kept on the stored message, so the label survives a reload or a re-render and
+        // nobody can later mistake this for a volunteer's answer.
+        assistant.fallback = d.notice;
+        let banner = node.querySelector('.fallback-note');
+        if (!banner) {
+          banner = el('div', { className: 'notice warn fallback-note' });
+          node.querySelector('.body').prepend(banner);
+        }
+        banner.textContent = d.notice;
+        meta.replaceChildren(document.createTextNode(`answering with ${d.model} — no volunteer GPU involved`));
+      },
+      // The volunteer dropped out mid-sentence and somebody else is starting over:
+      // throw away the fragment rather than gluing two answers together.
+      reset: () => {
+        raw = '';
+        inThinking = false;
+        assistant.content = '';
+        assistant.reasoning = '';
+        node.querySelector('details.think')?.remove();
+        content.innerHTML = '';
+        content.append(cursor);
+      },
       delta: (d) => {
         raw += d.delta;
         // The model emits its reasoning between <think> tags; show it collapsed.
@@ -193,9 +220,12 @@ async function onSend() {
       },
       done: (d) => {
         finish([
+          d.servedBy === 'fallback'
+            ? el('span', { className: 'pill rose', textContent: `free fallback model${d.fallbackModel ? ` · ${d.fallbackModel}` : ''}` })
+            : null,
           `${d.completionTokens} tokens`,
           el('span', { className: 'pill gold', textContent: `−${fmt.coins(d.coinsCharged)} AI Coins` }),
-          d.decodeTps ? `${d.decodeTps.toFixed(1)} tok/s` : null,
+          d.servedBy === 'fallback' ? null : (d.decodeTps ? `${d.decodeTps.toFixed(1)} tok/s` : null),
         ].filter(Boolean));
         // The spend animation and any freshly unlocked badge come from the real ledger.
         pollProfile({ origin: node });

@@ -81,7 +81,7 @@ export async function statsFor(userId) {
   const [totals, jobs, sessions, days, user] = await Promise.all([
     pool.query(
       `SELECT COALESCE(SUM(coins) FILTER (WHERE kind IN ('provide_minutes','serve_tokens')),0)::float AS earned,
-              COALESCE(-SUM(coins) FILTER (WHERE kind='consume_tokens'),0)::float AS spent,
+              COALESCE(-SUM(coins) FILTER (WHERE kind IN ('consume_tokens','consume_fallback')),0)::float AS spent,
               COALESCE(SUM((meta->>'minutes')::int) FILTER (WHERE kind='provide_minutes'),0)::int AS minutes_shared,
               BOOL_OR(COALESCE((meta->>'night')::boolean,false)) FILTER (WHERE kind='serve_tokens') AS served_at_night
          FROM ledger WHERE user_id=$1`, [id]),

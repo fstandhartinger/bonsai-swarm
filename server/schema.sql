@@ -32,7 +32,7 @@ CREATE INDEX IF NOT EXISTS api_tokens_user_idx ON api_tokens(user_id);
 CREATE TABLE IF NOT EXISTS ledger (
   id          bigserial PRIMARY KEY,
   user_id     bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  kind        text NOT NULL,      -- welcome | provide_minutes | serve_tokens | consume_tokens | admin_adjust
+  kind        text NOT NULL,      -- welcome | provide_minutes | serve_tokens | consume_tokens | consume_fallback | admin_adjust
   coins       numeric(20,6) NOT NULL,   -- positive = credit, negative = debit
   job_id      text,
   meta        jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -110,5 +110,14 @@ CREATE INDEX IF NOT EXISTS achievements_user_idx ON achievements(user_id, unlock
 CREATE OR REPLACE VIEW v_lifetime_earned AS
   SELECT user_id,
          COALESCE(SUM(coins) FILTER (WHERE kind IN ('provide_minutes','serve_tokens')), 0)::numeric(20,6) AS earned,
-         COALESCE(-SUM(coins) FILTER (WHERE kind = 'consume_tokens'), 0)::numeric(20,6) AS spent
+         COALESCE(-SUM(coins) FILTER (WHERE kind IN ('consume_tokens','consume_fallback')), 0)::numeric(20,6) AS spent
     FROM ledger GROUP BY user_id;
+
+-- ------------------------------------------------------------- free fallback
+-- Which side of the network answered: 'community' = a volunteer's GPU (the default and
+-- the point of the whole thing), 'fallback' = the free hosted model that steps in when
+-- the swarm is empty. `fallback_model` names it, so the label shown to the consumer can
+-- be checked against the record afterwards.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS served_by text NOT NULL DEFAULT 'community';
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS fallback_model text;
+CREATE INDEX IF NOT EXISTS jobs_served_by_idx ON jobs(served_by, created_at DESC);

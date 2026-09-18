@@ -5,6 +5,7 @@ const KIND_LABEL = {
   provide_minutes: 'Online minutes',
   serve_tokens: 'Answered for someone',
   consume_tokens: 'Your request',
+  consume_fallback: 'Your request (free fallback model)',
   admin_adjust: 'Manual adjustment',
 };
 
@@ -34,7 +35,7 @@ async function refresh() {
     .reduce((acc, s) => acc + Number(s.total), 0);
   rollTo($('#a-balance'), ledger.balance);
   rollTo($('#a-earned'), sum(['provide_minutes', 'serve_tokens']));
-  rollTo($('#a-spent'), Math.abs(sum(['consume_tokens'])));
+  rollTo($('#a-spent'), Math.abs(sum(['consume_tokens', 'consume_fallback'])));
 
   $('#ledger').replaceChildren(...ledger.entries.map((e) => el('tr', {},
     el('td', { className: 'small muted', textContent: fmt.when(e.created_at) }),
@@ -96,6 +97,7 @@ function detailOf(entry) {
   if (entry.kind === 'provide_minutes') return `${m.minutes} minute(s)`;
   if (entry.kind === 'serve_tokens') return `${m.completion_tokens} tokens${m.night ? ' · at night 🦉' : ''}`;
   if (entry.kind === 'consume_tokens') return `${m.prompt_tokens} prompt + ${m.completion_tokens} answer tokens`;
+  if (entry.kind === 'consume_fallback') return `no GPU was online — ${m.fallback_model || 'free fallback model'}, flat rate`;
   return m.reason || '';
 }
 

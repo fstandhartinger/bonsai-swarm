@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import { config } from './config.js';
 import { pool, withTransaction } from './db.js';
 import { post, costForJob, earningsForJob, affordableCompletionTokens } from './coins.js';
-import { estimatePromptTokens, roundCoins } from './util.js';
+import { estimatePromptTokens, roundCoins, RateLimiter } from './util.js';
+import { runFallbackCompletion, fallbackNotice } from './fallback.js';
 import * as game from './gamification.js';
 
 const now = () => Date.now();
@@ -14,6 +15,17 @@ export function isNightFor(tzOffsetMinutes = 0) {
   return hour >= 22 || hour < 6;
 }
 const newId = () => crypto.randomUUID();
+const utcDay = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * Tokens per second, safe to store. An answer that arrives inside the same millisecond
+ * divides by zero, and `jobs.decode_tps` is numeric(10,3) - an Infinity there aborts the
+ * whole settlement transaction, so the consumer would silently not be charged.
+ */
+function clampTps(value) {
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return Math.round(Math.min(value, 999_999) * 1000) / 1000;
+}
 
 /**
  * The coordinator owns every provider browser and every in-flight job.
@@ -33,6 +45,35 @@ export class Coordinator {
     this.tokensServedToday = 0;
     this.timers = [];
     this.userLocks = new Map();   // userId -> tail of that account's submit chain
+
+    // The free fallback model is the one thing here that costs somebody real money, so
+    // it is metered three ways: per account, per address, and for the whole site per day.
+    this.fallbackByAccount = new RateLimiter(config.fallback.perAccountPerHour, 3_600_000);
+    this.fallbackByIp = new RateLimiter(config.fallback.perIpPerHour, 3_600_000);
+    this.fallbackToday = { day: utcDay(), used: 0 };
+  }
+
+  /** Fallback answers served since UTC midnight, with the day rolled over if needed. */
+  fallbackUsedToday() {
+    const today = utcDay();
+    if (this.fallbackToday.day !== today) this.fallbackToday = { day: today, used: 0 };
+    return this.fallbackToday.used;
+  }
+
+  /**
+   * Restores today's global fallback count from the jobs table, so a restart does not
+   * hand out a fresh daily budget.
+   */
+  async loadFallbackUsage() {
+    if (!config.fallback.enabled) return;
+    try {
+      const { rows } = await pool.query(
+        `SELECT count(*)::int AS n FROM jobs
+          WHERE served_by = 'fallback' AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC')`);
+      this.fallbackToday = { day: utcDay(), used: Number(rows[0]?.n || 0) };
+    } catch (err) {
+      this.log.error('[coord] could not read today\'s fallback usage', err.message);
+    }
   }
 
   start() {
@@ -40,11 +81,16 @@ export class Coordinator {
     this.timers.push(setInterval(() => this.creditOnlineMinutes().catch((e) => this.log.error('[coord] minute credit failed', e.message)), 30_000));
     this.timers.push(setInterval(() => this.pingAll(), config.provider.heartbeatMs));
     for (const t of this.timers) t.unref?.();
+    this.loadFallbackUsage().catch(() => {});
   }
 
   stop() {
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
+    for (const job of this.jobs.values()) {
+      this.clearFallbackTimer(job);
+      if (job.fallbackAbort) { try { job.fallbackAbort.abort(); } catch { /* already done */ } }
+    }
     for (const p of this.providers.values()) { try { p.ws.close(); } catch { /* already closing */ } }
     this.providers.clear();
   }
@@ -204,7 +250,7 @@ export class Coordinator {
       const job = this.jobs.get(provider.currentJobId);
       if (job) {
         if (job.completionTokens === 0 && job.attempts < config.jobs.maxAttempts) this.requeue(job, `provider ${reason}`);
-        else await this.finishJob(job.id, 'failed', { error: `The GPU that was answering you went offline (${reason}).` });
+        else await this.giveUpOrFallback(job, `The GPU that was answering you went offline (${reason}).`);
       }
     }
     await pool.query(
@@ -304,7 +350,7 @@ export class Coordinator {
     return this.withUserLock(opts.user.id, () => this.submitLocked(opts));
   }
 
-  async submitLocked({ user, messages, maxNewTokens, enableThinking = false, sink }) {
+  async submitLocked({ user, messages, maxNewTokens, enableThinking = false, sink, clientIp = null }) {
     const promptTokens = estimatePromptTokens(messages);
     const balance = Number((await pool.query('SELECT balance FROM users WHERE id=$1', [user.id])).rows[0]?.balance ?? 0);
     const reserved = this.reservedFor(user.id);
@@ -351,12 +397,184 @@ export class Coordinator {
       firstTokenAt: null,
       idleTimer: null,
       cappedByBalance: cap < Math.min(config.jobs.maxNewTokens, Number(maxNewTokens) || config.jobs.defaultMaxNewTokens),
+      clientIp,
+      servedBy: 'community',
+      fallbackTimer: null,
+      fallbackModel: null,
     };
     this.jobs.set(job.id, job);
     this.queue.push(job.id);
     sink.onQueued?.({ jobId: job.id, position: this.queue.indexOf(job.id) + 1, maxNewTokens: cap, promptTokens, cappedByBalance: job.cappedByBalance });
     this.dispatch();
+    if (job.status === 'queued') this.armFallbackTimer(job);
     return job;
+  }
+
+  // --------------------------------------------------------- free fallback
+
+  /**
+   * Is there a volunteer who could plausibly answer this job - now or in a moment?
+   *
+   * A browser that is still loading the weights counts: it is minutes from being
+   * useful, not hours, and the point of the wait is to give the swarm its chance.
+   */
+  couldServe(job) {
+    for (const p of this.providers.values()) {
+      if (!p.admitted) continue;
+      if (p.userId === job.consumerId) continue;
+      if (now() - p.lastSeen > config.provider.staleMs) continue;
+      if (['ready', 'busy', 'loading', 'connecting'].includes(p.state)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Starts the clock after which a queued job stops waiting for the swarm. With nobody
+   * online it fires on the next tick - there is nothing to wait for.
+   */
+  armFallbackTimer(job) {
+    if (!config.fallback.enabled || job.fallbackTimer || job.servedBy === 'fallback') return;
+    const waiting = this.couldServe(job);
+    const delay = waiting ? config.fallback.queueWaitMs : 0;
+    const reason = waiting ? 'waited' : 'nobody-online';
+    job.fallbackTimer = setTimeout(() => {
+      job.fallbackTimer = null;
+      this.startFallback(job, reason).catch((e) => this.log.error('[coord] fallback failed', e.message));
+    }, delay);
+    job.fallbackTimer.unref?.();
+  }
+
+  /**
+   * The route a request submitted right now would most likely take, for the
+   * `x-bonsai-served-by` header - which has to be written before the answer exists.
+   */
+  likelyRoute() {
+    if (!config.fallback.enabled) return 'community';
+    if (this.fallbackUsedToday() >= config.fallback.globalPerDay) return 'community';
+    const ready = [...this.providers.values()].some((p) => p.admitted && p.state === 'ready'
+      && now() - p.lastSeen <= config.provider.staleMs);
+    return ready ? 'community' : 'fallback';
+  }
+
+  clearFallbackTimer(job) {
+    if (job?.fallbackTimer) { clearTimeout(job.fallbackTimer); job.fallbackTimer = null; }
+  }
+
+  /**
+   * May this job be answered by the free fallback model right now? Returns the reason
+   * when it may not, so the consumer can be told something true instead of "no GPU".
+   */
+  fallbackGate(job) {
+    if (!config.fallback.enabled) return { ok: false, code: 'fallback_disabled', message: 'No fallback model is configured.' };
+    const f = config.fallback;
+    if (this.fallbackUsedToday() >= f.globalPerDay) {
+      return {
+        ok: false,
+        code: 'fallback_daily_cap',
+        message: `The free fallback model has answered its ${f.globalPerDay} questions for today.`,
+      };
+    }
+    // The limits are configuration, like the coin rates, so they are read here rather
+    // than frozen into the limiter when the coordinator was constructed.
+    this.fallbackByAccount.limit = f.perAccountPerHour;
+    this.fallbackByIp.limit = f.perIpPerHour;
+    if (!this.fallbackByAccount.take(`fb:user:${job.consumerId}`)) {
+      return {
+        ok: false,
+        code: 'fallback_account_limit',
+        message: `You have used the free fallback model ${f.perAccountPerHour} times this hour.`,
+      };
+    }
+    if (job.clientIp && !this.fallbackByIp.take(`fb:ip:${job.clientIp}`)) {
+      return {
+        ok: false,
+        code: 'fallback_ip_limit',
+        message: `This connection has used the free fallback model ${f.perIpPerHour} times this hour.`,
+      };
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Hands a job to the free fallback model.
+   *
+   * Called when the swarm is empty, when nobody picked the job up in time, or when the
+   * volunteer who had it went away. The consumer is always told; see fallbackNotice().
+   */
+  async startFallback(job, reason) {
+    if (!this.jobs.has(job.id) || job.servedBy === 'fallback') return;
+    if (job.status === 'done' || job.status === 'failed') return;
+
+    const gate = this.fallbackGate(job);
+    if (!gate.ok) {
+      // Somebody is online and merely busy: keep waiting for them, as before.
+      if (this.couldServe(job)) return;
+      await this.finishJob(job.id, 'failed', {
+        error: `No community GPU is online right now. ${gate.message} `
+          + 'Try again later, or share your own GPU to keep the swarm alive.',
+        code: gate.code,
+      });
+      return;
+    }
+
+    this.clearFallbackTimer(job);
+    if (job.idleTimer) { clearTimeout(job.idleTimer); job.idleTimer = null; }
+    this.queue = this.queue.filter((id) => id !== job.id);
+
+    // A volunteer that died mid-answer has already put half a sentence on the screen.
+    // The fallback starts a fresh answer, so tell the consumer to drop what it has.
+    if (job.completionTokens > 0) {
+      job.sink.onReset?.({ jobId: job.id, reason: 'the volunteer GPU dropped out' });
+      job.completionTokens = 0;
+    }
+
+    const previousProvider = this.providers.get(job.providerId);
+    if (previousProvider && previousProvider.currentJobId === job.id) this.releaseProvider(previousProvider);
+
+    job.servedBy = 'fallback';
+    job.status = 'running';
+    job.providerId = null;
+    job.providerUserId = null;
+    job.isMock = false;
+    job.startedAt = job.startedAt || now();
+    job.firstTokenAt = null;
+    this.fallbackToday.used += 1;
+
+    const controller = new AbortController();
+    job.fallbackAbort = controller;
+
+    try {
+      const result = await runFallbackCompletion({
+        messages: job.messages,
+        maxTokens: Math.min(job.maxNewTokens, config.fallback.maxNewTokens),
+        signal: controller.signal,
+        onUpstream: (upstream) => {
+          job.fallbackModel = upstream.label;
+          job.sink.onFallback?.({
+            jobId: job.id,
+            servedBy: 'fallback',
+            model: upstream.label,
+            reason,
+            notice: fallbackNotice(upstream.label),
+            coinsFlat: config.fallback.coinsFlat,
+          });
+        },
+        onDelta: (delta) => {
+          if (!job.firstTokenAt) job.firstTokenAt = now();
+          job.sink.onDelta?.({ jobId: job.id, delta, servedBy: 'fallback' });
+        },
+      });
+      job.completionTokens = result.completionTokens;
+      await this.finishJob(job.id, 'done', { stopReason: result.stopReason });
+    } catch (err) {
+      this.log.error('[coord] fallback model failed', err.message);
+      await this.finishJob(job.id, 'failed', {
+        // The upstream's own message can say anything; the consumer gets ours.
+        error: 'No community GPU is online, and the free fallback model could not answer either. '
+          + 'Please try again in a moment.',
+        code: 'fallback_failed',
+      });
+    }
   }
 
   /** AI Coins that in-flight jobs of this user could still cost, so parallel requests cannot overdraw. */
@@ -405,6 +623,8 @@ export class Coordinator {
       const provider = this.pickProvider(job);
       if (!provider) continue;
 
+      // A volunteer took it after all - stop the fallback clock.
+      this.clearFallbackTimer(job);
       this.queue = this.queue.filter((id) => id !== jobId);
       job.status = 'running';
       job.attempts += 1;
@@ -453,9 +673,25 @@ export class Coordinator {
         this.releaseProvider(provider);
       }
       if (job.completionTokens === 0 && job.attempts < config.jobs.maxAttempts) this.requeue(job, 'timeout');
-      else this.finishJob(job.id, 'failed', { error: 'The volunteer GPU stopped responding.' }).catch((e) => this.log.error(e.message));
+      else this.giveUpOrFallback(job, 'The volunteer GPU stopped responding.').catch((e) => this.log.error(e.message));
     }, ms);
     job.idleTimer.unref?.();
+  }
+
+  /**
+   * The volunteer path has run out of options for this job. If the free fallback model
+   * can take it, it answers; otherwise the consumer gets the error.
+   *
+   * A consumer that has already been shown part of an answer can only be handed a fresh
+   * one if it is able to throw the fragment away - the web chat and the non-streaming
+   * API can (`sink.canReset`), a half-sent streamed HTTP response cannot.
+   */
+  async giveUpOrFallback(job, error) {
+    if (config.fallback.enabled && job.servedBy !== 'fallback'
+        && (job.completionTokens === 0 || job.sink.canReset)) {
+      return this.startFallback(job, 'provider-dropped');
+    }
+    return this.finishJob(job.id, 'failed', { error });
   }
 
   requeue(job, reason) {
@@ -468,6 +704,8 @@ export class Coordinator {
     this.queue.push(job.id);
     job.sink.onQueued?.({ jobId: job.id, position: this.queue.indexOf(job.id) + 1, requeued: true, reason });
     this.dispatch();
+    // Still nobody: start (or restart) the clock towards the free fallback model.
+    if (job.status === 'queued') this.armFallbackTimer(job);
   }
 
   releaseProvider(provider) {
@@ -514,6 +752,9 @@ export class Coordinator {
     if (Number(byUserId) !== job.consumerId) return false;
     const provider = this.providers.get(job.providerId);
     if (provider) this.send(provider, { type: 'job.cancel', jobId: job.id, reason: 'user' });
+    // A fallback request is an open HTTP stream to somebody else's API - close it, so a
+    // consumer who walks away does not keep burning the daily budget.
+    if (job.fallbackAbort) { try { job.fallbackAbort.abort(); } catch { /* already done */ } }
     await this.finishJob(job.id, 'cancelled', { stopReason: 'cancelled' });
     return true;
   }
@@ -523,12 +764,13 @@ export class Coordinator {
    * provider for the same tokens, and record aggregate counts only - never the prompt
    * or the answer.
    */
-  async finishJob(jobId, status, { error = null, stopReason = null } = {}) {
+  async finishJob(jobId, status, { error = null, stopReason = null, code = null } = {}) {
     const job = this.jobs.get(jobId);
     if (!job) return;
     this.jobs.delete(jobId);
     this.queue = this.queue.filter((id) => id !== jobId);
     if (job.idleTimer) { clearTimeout(job.idleTimer); job.idleTimer = null; }
+    this.clearFallbackTimer(job);
     job.status = status;
 
     const provider = this.providers.get(job.providerId);
@@ -568,11 +810,19 @@ export class Coordinator {
     const completionTokens = job.completionTokens;
     // Nothing was delivered -> nothing is charged and nothing is earned.
     const billable = completionTokens > 0;
-    const cost = billable ? costForJob(job.promptTokens, completionTokens) : 0;
-    const earned = billable ? earningsForJob(completionTokens) : 0;
+    const viaFallback = job.servedBy === 'fallback';
+    // A fallback answer is a flat, reduced charge no matter how long it is, and it pays
+    // nobody: no volunteer's GPU produced it, so there is no work to reward.
+    const cost = billable
+      ? (viaFallback ? roundCoins(config.fallback.coinsFlat) : costForJob(job.promptTokens, completionTokens))
+      : 0;
+    const earned = billable && !viaFallback ? earningsForJob(completionTokens) : 0;
     const durationMs = job.startedAt ? now() - job.startedAt : null;
-    const decodeTps = job.firstTokenAt && completionTokens > 1
-      ? Math.round((completionTokens / ((now() - job.firstTokenAt) / 1000)) * 1000) / 1000
+    // Only meaningful for a volunteer's GPU: the fallback's speed is somebody else's
+    // datacentre and says nothing about the swarm. Guarded against a zero-millisecond
+    // elapsed time, which would divide by zero and overflow numeric(10,3).
+    const decodeTps = !viaFallback && job.firstTokenAt && completionTokens > 1
+      ? clampTps(completionTokens / ((now() - job.firstTokenAt) / 1000))
       : null;
 
     let charged = 0;
@@ -580,16 +830,24 @@ export class Coordinator {
       await withTransaction(async (client) => {
         await client.query(
           `INSERT INTO jobs (id, consumer_id, provider_user_id, status, prompt_tokens, completion_tokens,
-                             decode_tps, wait_ms, duration_ms, attempts, is_mock, error, finished_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now())`,
+                             decode_tps, wait_ms, duration_ms, attempts, is_mock, error, finished_at,
+                             served_by, fallback_model)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now(), $13, $14)`,
           [job.id, job.consumerId, job.providerUserId, status, job.promptTokens, completionTokens,
             decodeTps, job.startedAt ? job.startedAt - job.createdAt : null, durationMs, job.attempts,
-            job.isMock, error ? String(error).slice(0, 300) : null],
+            job.isMock, error ? String(error).slice(0, 300) : null,
+            job.servedBy || 'community', job.fallbackModel || null],
         );
         if (cost > 0) {
           const res = await post(client, {
-            userId: job.consumerId, kind: 'consume_tokens', coins: -cost, jobId: job.id,
-            meta: { prompt_tokens: job.promptTokens, completion_tokens: completionTokens, status },
+            userId: job.consumerId,
+            kind: viaFallback ? 'consume_fallback' : 'consume_tokens',
+            coins: -cost,
+            jobId: job.id,
+            meta: {
+              prompt_tokens: job.promptTokens, completion_tokens: completionTokens, status,
+              ...(viaFallback ? { fallback_model: job.fallbackModel } : {}),
+            },
           });
           if (res.applied) charged = cost;
           else {
@@ -598,8 +856,14 @@ export class Coordinator {
             const avail = Math.max(0, Number(rows[0]?.balance ?? 0));
             if (avail > 0) {
               await post(client, {
-                userId: job.consumerId, kind: 'consume_tokens', coins: -avail, jobId: job.id,
-                meta: { prompt_tokens: job.promptTokens, completion_tokens: completionTokens, status, clamped_from: cost },
+                userId: job.consumerId,
+                kind: viaFallback ? 'consume_fallback' : 'consume_tokens',
+                coins: -avail,
+                jobId: job.id,
+                meta: {
+                  prompt_tokens: job.promptTokens, completion_tokens: completionTokens, status, clamped_from: cost,
+                  ...(viaFallback ? { fallback_model: job.fallbackModel } : {}),
+                },
               });
               charged = avail;
             }
@@ -641,6 +905,10 @@ export class Coordinator {
       decodeTps,
       durationMs,
       error,
+      code,
+      // 'community' = a volunteer's GPU, 'fallback' = the free hosted model.
+      servedBy: job.servedBy || 'community',
+      fallbackModel: job.fallbackModel || null,
     };
     if (status === 'done' || status === 'cancelled') job.sink.onDone?.(summary);
     else job.sink.onError?.(summary);
@@ -668,6 +936,14 @@ export class Coordinator {
       jobsRunning: [...this.jobs.values()].filter((j) => j.status === 'running').length,
       avgDecodeTps: tpsCount ? Math.round((tpsSum / tpsCount) * 10) / 10 : null,
       capacityTps: Math.round(tpsSum * 10) / 10,
+      // Additive only: `providersReady` keeps its old meaning, so anything that watches
+      // the network (the auto-router demo does) is unaffected by the fallback existing.
+      fallbackEnabled: config.fallback.enabled,
+      fallbackUsedToday: this.fallbackUsedToday(),
+      fallbackRemainingToday: config.fallback.enabled
+        ? Math.max(0, config.fallback.globalPerDay - this.fallbackUsedToday())
+        : 0,
+      jobsOnFallback: [...this.jobs.values()].filter((j) => j.servedBy === 'fallback').length,
     };
   }
 

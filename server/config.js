@@ -13,6 +13,56 @@ const bool = (name, fallback) => {
   return raw === '1' || raw.toLowerCase() === 'true';
 };
 
+/**
+ * One upstream for the free fallback model (see server/fallback.js): a plain
+ * OpenAI-compatible endpoint. Endpoints and keys only ever come from the environment,
+ * so neither is in this repository.
+ */
+export function normalizeUpstream(entry, index = 0) {
+  if (!entry || typeof entry !== 'object') throw new Error('each fallback upstream must be an object');
+  const baseUrl = String(entry.baseUrl ?? entry.base_url ?? '').trim().replace(/\/+$/, '');
+  const model = String(entry.model ?? '').trim();
+  if (!baseUrl) throw new Error(`fallback upstream #${index + 1} has no baseUrl`);
+  if (!model) throw new Error(`fallback upstream #${index + 1} has no model`);
+  return {
+    // What a visitor is told produced the answer; defaults to the bare model id.
+    label: String(entry.label ?? '').trim() || model.split('/').pop(),
+    baseUrl,
+    model,
+    apiKey: String(entry.apiKey ?? entry.api_key ?? '').trim(),
+    // Most free models worth having are reasoning models, and a reasoning model on a
+    // small token budget spends all of it thinking and returns an empty answer. Where
+    // the server understands the hint, ask for thinking to be switched off.
+    noThinking: entry.noThinking ?? entry.no_thinking ?? true,
+    headers: entry.headers && typeof entry.headers === 'object' ? entry.headers : {},
+  };
+}
+
+/** `FALLBACK_UPSTREAMS` (a JSON array), or the single-upstream `FALLBACK_*` variables. */
+export function parseUpstreams(env = process.env) {
+  const raw = String(env.FALLBACK_UPSTREAMS || '').trim();
+  if (raw) {
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (err) {
+      throw new Error(`FALLBACK_UPSTREAMS is not valid JSON: ${err.message}`);
+    }
+    if (!Array.isArray(parsed)) throw new Error('FALLBACK_UPSTREAMS must be a JSON array');
+    return parsed.map(normalizeUpstream);
+  }
+  if (env.FALLBACK_BASE_URL && env.FALLBACK_MODEL) {
+    return [normalizeUpstream({
+      label: env.FALLBACK_LABEL,
+      baseUrl: env.FALLBACK_BASE_URL,
+      model: env.FALLBACK_MODEL,
+      apiKey: env.FALLBACK_API_KEY,
+      noThinking: env.FALLBACK_NO_THINKING !== '0',
+    })];
+  }
+  return [];
+}
+
+const fallbackUpstreams = parseUpstreams();
+
 export const config = {
   port: num('PORT', 3000),
   publicUrl: (process.env.PUBLIC_URL || 'http://localhost:3000').replace(/\/+$/, ''),
@@ -82,6 +132,26 @@ export const config = {
     loginPerHour: num('RATE_LOGIN_PER_HOUR', 20),
     signupPerDay: num('RATE_SIGNUP_PER_DAY', 10),
     chatPerMinute: num('RATE_CHAT_PER_MINUTE', 20),
+  },
+
+  // The free fallback model that answers when the swarm cannot - see server/fallback.js.
+  fallback: {
+    // Off automatically when no upstream is configured; FALLBACK_ENABLED=0 turns it off
+    // even when one is, for a purely peer-to-peer deployment.
+    enabled: bool('FALLBACK_ENABLED', true) && fallbackUpstreams.length > 0,
+    upstreams: fallbackUpstreams,
+    // How long a job waits for a volunteer before the fallback takes it. When there is
+    // no admitted GPU in the network at all, the fallback starts straight away.
+    queueWaitMs: num('FALLBACK_QUEUE_WAIT_MS', 20000),
+    maxNewTokens: num('FALLBACK_MAX_NEW_TOKENS', 512),
+    // A fallback answer costs a flat, reduced amount: no volunteer did the work, so
+    // nobody is paid for it and there is nothing to meter per token.
+    coinsFlat: num('COINS_FALLBACK_FLAT', 5),
+    perAccountPerHour: num('FALLBACK_PER_ACCOUNT_PER_HOUR', 20),
+    perIpPerHour: num('FALLBACK_PER_IP_PER_HOUR', 30),
+    globalPerDay: num('FALLBACK_GLOBAL_PER_DAY', 500),
+    timeoutMs: num('FALLBACK_TIMEOUT_MS', 90000),
+    firstTokenMs: num('FALLBACK_FIRST_TOKEN_MS', 30000),
   },
 
   runtime: {

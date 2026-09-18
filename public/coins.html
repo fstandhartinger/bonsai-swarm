@@ -21,10 +21,43 @@
       <tr><td>Generating an answer for someone else — per token</td><td class="num" id="p-serve">–</td></tr>
       <tr><td>Your prompt — per token sent</td><td class="num" id="p-prompt">–</td></tr>
       <tr><td>Your answer — per token received</td><td class="num" id="p-completion">–</td></tr>
+      <tr id="row-fallback" hidden><td>An answer from the free fallback model — flat, per answer</td>
+        <td class="num" id="p-fallback">–</td></tr>
     </tbody>
   </table>
   <p class="small muted">The rates are configuration, not code, and can be retuned as the network grows.
     This page always shows the values the server is actually using right now.</p>
+
+  <h2 id="fallback">When no GPU is online</h2>
+  <div id="fallback-block" hidden>
+    <p>This is a peer-to-peer network, so some of the time there is simply nobody in it. Rather than let you
+      watch a spinner until the request expires, a <b>free fallback model</b> answers instead — and the answer
+      says so, every time:</p>
+    <p class="notice warn" style="margin:14px 0">No community GPU online right now — answered by a free
+      fallback model (<span id="fallback-models">…</span>).</p>
+    <ul>
+      <li><b>It is never disguised as a volunteer's answer.</b> The chat shows the line above, and the API sends
+        the header <code>x-bonsai-served-by: fallback</code> together with
+        <code>bonsai_swarm.served_by</code> and <code>bonsai_swarm.fallback_model</code>. A community answer
+        says <code>community</code> and keeps its "served by a volunteer's GPU" label.</li>
+      <li><b>Nobody earns AI Coins for it.</b> No volunteer did the work, so there is nothing to pay out —
+        it does not count towards levels, badges, streaks or the leaderboard.</li>
+      <li><b>It costs a flat, reduced amount</b> — <span id="fallback-flat">–</span> AI Coins per answer, however
+        long the answer is, instead of the per-token price of a real swarm answer.</li>
+      <li><b>It is rationed</b>, because unlike the swarm it costs somebody real money:
+        <span id="fallback-account">–</span> answers per account per hour,
+        <span id="fallback-ip">–</span> per connection per hour, and
+        <span id="fallback-day">–</span> for the whole site per day. When the budget is gone, the request waits
+        for a real GPU like it always did.</li>
+      <li><b>The swarm always gets first refusal.</b> If any volunteer is online, your prompt goes to them; the
+        fallback only takes over when the network is empty, when nobody has picked the job up after
+        <span id="fallback-wait">–</span> seconds, or when the volunteer answering you disappears.</li>
+    </ul>
+    <p class="small muted">If you would rather the network stayed purely peer-to-peer: share your GPU on the
+      <a href="/share.html">Share my GPU</a> page and the fallback stops being needed.</p>
+  </div>
+  <p id="fallback-off" hidden class="small muted">This deployment has no fallback model configured: every answer
+    comes from a volunteer's GPU, and a request with nobody online waits and then expires.</p>
 
   <h2>The rules</h2>
   <ul>
@@ -80,6 +113,19 @@ document.getElementById('p-minute').textContent = `+${cfg.coins.providePerMinute
 document.getElementById('p-serve').textContent = `+${cfg.coins.servePerToken}`;
 document.getElementById('p-prompt').textContent = `−${cfg.coins.consumePromptPerToken}`;
 document.getElementById('p-completion').textContent = `−${cfg.coins.consumeCompletionPerToken}`;
+
+const fb = cfg.fallback || { enabled: false };
+document.getElementById(fb.enabled ? 'fallback-block' : 'fallback-off').hidden = false;
+if (fb.enabled) {
+  document.getElementById('row-fallback').hidden = false;
+  document.getElementById('p-fallback').textContent = `−${fb.coinsFlat}`;
+  document.getElementById('fallback-flat').textContent = fb.coinsFlat;
+  document.getElementById('fallback-models').textContent = fb.models.join(' / ');
+  document.getElementById('fallback-account').textContent = fb.perAccountPerHour;
+  document.getElementById('fallback-ip').textContent = fb.perIpPerHour;
+  document.getElementById('fallback-day').textContent = fb.globalPerDay;
+  document.getElementById('fallback-wait').textContent = Math.round(fb.queueWaitMs / 1000);
+}
 </script>
 </body>
 </html>

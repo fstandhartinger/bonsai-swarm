@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { requireAuth } from '../auth.js';
 import { normalizeMessages } from './api.js';
-import { RateLimiter } from '../util.js';
+import { RateLimiter, clientIp } from '../util.js';
 
 // Same budget as the web chat: one account, so many requests a minute, whichever door
 // it comes through.
@@ -59,11 +59,18 @@ export function openaiRouter(coordinator) {
       let jobRef = null;
       const done = new Promise((resolve) => {
         const sink = {
+          // Nothing has been sent yet, so a half-finished answer can simply be dropped:
+          // a job whose volunteer disappears can still be completed by the fallback.
+          canReset: true,
+          onReset: () => { text = ''; },
           onDelta: (d) => { text += d.delta; },
           onDone: (d) => resolve({ ok: true, summary: d }),
           onError: (d) => resolve({ ok: false, summary: d }),
         };
-        coordinator.submit({ user: req.user, messages, maxNewTokens: maxTokens, enableThinking, sink })
+        coordinator.submit({
+          user: req.user, messages, maxNewTokens: maxTokens, enableThinking, sink,
+          clientIp: clientIp(req, { trustProxy: config.trustProxy }),
+        })
           .then((job) => { jobRef = job; })
           .catch((err) => resolve({ ok: false, summary: { error: err.message, code: err.code } }));
       });
@@ -71,9 +78,13 @@ export function openaiRouter(coordinator) {
       const result = await done;
       if (!result.ok) {
         const status = result.summary.code === 'insufficient_coins' ? 402 : 503;
+        res.set('x-bonsai-served-by', result.summary.servedBy || 'community');
         return openaiError(res, status, result.summary.error || 'The network could not answer this request.',
           'server_error', result.summary.code || null);
       }
+      // Headers are written last on this path, so this one is always exact.
+      res.set('x-bonsai-served-by', result.summary.servedBy || 'community');
+      if (result.summary.servedBy === 'fallback') res.set('x-bonsai-fallback-model', result.summary.fallbackModel || '');
       res.json({
         id, object: 'chat.completion', created, model: MODEL_NAME,
         choices: [{
@@ -92,6 +103,9 @@ export function openaiRouter(coordinator) {
         'cache-control': 'no-cache, no-transform',
         connection: 'keep-alive',
         'x-accel-buffering': 'no',
+        // Written before the answer exists, so this is the route the request is
+        // expected to take. `bonsai_swarm.served_by` in the final chunk is the fact.
+        'x-bonsai-served-by': coordinator.likelyRoute(),
       });
       res.flushHeaders?.();
       const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
@@ -100,6 +114,16 @@ export function openaiRouter(coordinator) {
       const end = () => { if (ended) return; ended = true; res.write('data: [DONE]\n\n'); res.end(); };
 
       const sink = {
+        // Bytes already on the wire cannot be recalled, so a streamed API response is
+        // the one consumer that cannot be restarted on the fallback mid-answer.
+        canReset: false,
+        onFallback: (d) => {
+          send({
+            id, object: 'chat.completion.chunk', created, model: MODEL_NAME,
+            choices: [{ index: 0, delta: {}, finish_reason: null }],
+            bonsai_swarm: { served_by: 'fallback', fallback_model: d.model, notice: d.notice },
+          });
+        },
         onDelta: (d) => {
           const delta = first ? { role: 'assistant', content: d.delta } : { content: d.delta };
           first = false;
@@ -121,7 +145,10 @@ export function openaiRouter(coordinator) {
       };
       let job;
       try {
-        job = await coordinator.submit({ user: req.user, messages, maxNewTokens: maxTokens, enableThinking, sink });
+        job = await coordinator.submit({
+          user: req.user, messages, maxNewTokens: maxTokens, enableThinking, sink,
+          clientIp: clientIp(req, { trustProxy: config.trustProxy }),
+        });
       } catch (err) {
         send({ error: { message: err.message, type: 'server_error', code: err.code || null } });
         return end();
@@ -146,5 +173,9 @@ function extras(summary) {
     coins_charged: summary.coinsCharged ?? 0,
     decode_tps: summary.decodeTps ?? null,
     job_id: summary.jobId ?? null,
+    // 'community' = a volunteer's GPU produced this; 'fallback' = the swarm was empty
+    // and a free hosted model answered instead. Always present, always authoritative.
+    served_by: summary.servedBy ?? 'community',
+    fallback_model: summary.fallbackModel ?? null,
   };
 }
