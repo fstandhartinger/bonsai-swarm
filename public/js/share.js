@@ -5,10 +5,10 @@ import {
 
 const params = new URLSearchParams(location.search);
 // Automated tests only: a deterministic fake model instead of a real WebGPU run.
-// The server only treats it as a mock when the shared test key matches, so this does
-// nothing for a normal visitor.
-const MOCK = params.get('provider') === 'mock';
+// Both the query flag and the shared test key are required; a visitor who only has
+// `?provider=mock` still loads the real worker (and the server will refuse mock=1).
 const TEST_KEY = params.get('testKey') || '';
+const MOCK = params.get('provider') === 'mock' && Boolean(TEST_KEY);
 const ADMIN_OVERRIDE = params.get('override') === '1';
 // The downloadable client opens this page because the user typed `provide`; it does not
 // need a second click. Never set for somebody who just browsed here.
@@ -35,13 +35,21 @@ const ui = {};
 
 async function boot() {
   // The downloadable client opens this page with #code=... - a single-use, 60-second
-  // hand-off code, never the API token itself. The fragment never reaches a log.
-  if (location.hash.startsWith('#code=') || location.hash.startsWith('#token=')) {
-    const isCode = location.hash.startsWith('#code=');
-    const value = decodeURIComponent(location.hash.slice(isCode ? 6 : 7));
+  // hand-off code. A long-lived #token= is ignored: that would be a durable login URL.
+  let refuseAutostart = false;
+  if (location.hash.startsWith('#code=')) {
+    const value = decodeURIComponent(location.hash.slice(6));
     history.replaceState(null, '', location.pathname + location.search);
-    await api('/api/auth/token-session', { method: 'POST', body: isCode ? { code: value } : { token: value } })
-      .catch((err) => { if (err.code === 'already_signed_in') alert(err.message); });
+    try {
+      await api('/api/auth/token-session', { method: 'POST', body: { code: value } });
+    } catch (err) {
+      if (err.code === 'already_signed_in') {
+        alert(err.message);
+        refuseAutostart = true;
+      }
+    }
+  } else if (location.hash.startsWith('#token=')) {
+    history.replaceState(null, '', location.pathname + location.search);
   }
   const me = await mountChrome();
   if (!requireSignIn(me)) return;
@@ -72,7 +80,7 @@ async function boot() {
   window.addEventListener('beforeunload', () => { try { state.ws?.close(); } catch { /* closing anyway */ } });
   setInterval(refreshStats, 15000);
   refreshStats();
-  if (AUTOSTART) start(cfg);
+  if (AUTOSTART && !refuseAutostart) start(cfg);
 }
 
 /**

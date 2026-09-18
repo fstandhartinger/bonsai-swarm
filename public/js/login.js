@@ -3,7 +3,8 @@
 import { $, api, fmt, mountChrome } from './common.js';
 
 const params = new URLSearchParams(location.search);
-const next = params.get('next') || '/chat.html';
+const rawNext = String(params.get('next') || '/chat.html');
+const next = /^\/[^/\\]/.test(rawNext) ? rawNext : '/chat.html';
 
 const ERRORS = {
   google_disabled: 'Google sign-in is not configured on this server yet.',
