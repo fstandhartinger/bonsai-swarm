@@ -293,11 +293,11 @@ test('a demoted provider cannot re-admit itself with another claimed benchmark',
 test('jobs.error stores a short code, not provider-chosen text', async () => {
   const host = client(srv.url); await signUp(host, 'errhost');
   await spawnProvider(await createToken(host), { tokens: 1 });
-  const user = client(srv.url); await signUp(user, 'erruser');
+  const user = client(srv.url); const errUser = await signUp(user, 'erruser');
   const [provider] = [...srv.coordinator.providers.values()];
   const job = {
     id: 'job-err-1',
-    consumerId: (await pool.query("SELECT id FROM users WHERE username_lower='erruser'")).rows[0].id,
+    consumerId: Number(errUser.id),
     providerId: provider.id,
     providerUserId: provider.userId,
     promptTokens: 3,

@@ -74,7 +74,6 @@ export function client(baseUrl) {
           ...(body ? { 'content-type': 'application/json' } : {}),
           ...(cookie ? { cookie } : {}),
           ...(noOrigin ? {} : { origin }),
-          ...(TEST_KEY && !headers['x-test-mode-key'] ? { 'x-test-mode-key': TEST_KEY } : {}),
           ...headers,
         },
         body: body ? JSON.stringify(body) : undefined,
