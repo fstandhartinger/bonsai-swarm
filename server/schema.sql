@@ -152,3 +152,4 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email text;
 -- the account cannot be signed into any more. House and operator accounts are never
 -- marked: they authenticate with server-side API tokens, not through a login form.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS anon_locked boolean NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_demoted_until timestamptz;

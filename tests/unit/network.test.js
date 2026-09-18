@@ -288,6 +288,14 @@ test('a demoted provider cannot re-admit itself with another claimed benchmark',
   await srv.coordinator.handleBenchmark(view, { decodeTps: 80, ttftMs: 10 });
   assert.equal(view.admitted, false);
   assert.equal(view.state, 'rejected');
+  assert.equal(view.decodeTps, view.measuredTps);
+});
+
+test('a demoted account stays demoted on a new socket', async () => {
+  const host = client(srv.url); const u = await signUp(host, 'slowpoke2');
+  await pool.query("UPDATE users SET provider_demoted_until = now() + interval '1 hour' WHERE id=$1", [u.id]);
+  const p = await spawnProvider(await createToken(host), { tokens: 4, decodeTps: 80 });
+  assert.equal(p.admitted, false);
 });
 
 test('jobs.error stores a short code, not provider-chosen text', async () => {
