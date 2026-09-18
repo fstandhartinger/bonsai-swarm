@@ -156,3 +156,36 @@ test('the OpenAI-compatible endpoint answers with a bearer token', async ({ page
     await hostContext.close();
   }
 });
+
+test('with no volunteer online the chat streams a clearly labelled fallback answer', async ({ page }) => {
+  const cfg = await (await fetch(`${BASE}/api/config`)).json();
+  test.skip(!cfg.fallback?.enabled, 'this deployment has no fallback model configured');
+  const stats = await (await fetch(`${BASE}/api/stats`)).json();
+  test.skip(stats.providersReady > 0, 'a real volunteer is online, so the fallback is not the path under test');
+
+  await signUp(page, uniq('e2efb'));
+  const before = await balance(page);
+
+  await page.fill('#input', 'In one sentence, what is a peer-to-peer network?');
+  await page.click('#send');
+
+  // The label has to be on screen, and it has to name the model that answered.
+  const notice = page.locator('.fallback-note');
+  await expect(notice).toBeVisible({ timeout: 60000 });
+  await expect(notice).toContainText('No community GPU online right now');
+  await expect(notice).toContainText('answered by a free fallback model');
+
+  // And a real answer has to arrive under it.
+  const answer = page.locator('.msg.assistant .content').last();
+  await expect(answer).not.toHaveText('', { timeout: 60000 });
+  await expect(page.locator('.msg.assistant .meta').last()).toContainText('free fallback model', { timeout: 60000 });
+
+  // Flat rate, not the per-token price.
+  const after = await balance(page);
+  expect(before - after).toBe(cfg.fallback.coinsFlat);
+
+  // Nothing about this may look like a volunteer's work.
+  const ledger = await page.evaluate(async () => (await (await fetch('/api/ledger')).json()).entries);
+  const spend = ledger.find((e) => Number(e.coins) < 0);
+  expect(spend.kind).toBe('consume_fallback');
+});
