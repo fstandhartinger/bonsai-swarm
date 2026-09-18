@@ -10,7 +10,33 @@ import { publicFallbackInfo } from '../fallback.js';
 import * as game from '../gamification.js';
 import { publicStats } from '../stats.js';
 
-const chatLimiter = new RateLimiter(config.limits.chatPerMinute, 60_000);
+export const accountChatLimiter = new RateLimiter(config.limits.chatPerMinute, 60_000);
+
+/** Collects coordinator events until the HTTP status is decided, then forwards. */
+export function bufferingSink() {
+  const events = [];
+  const sink = {
+    canReset: true,
+    onQueued: (d) => events.push(['onQueued', d]),
+    onAssigned: (d) => events.push(['onAssigned', d]),
+    onFallback: (d) => events.push(['onFallback', d]),
+    onReset: (d) => events.push(['onReset', d]),
+    onDelta: (d) => events.push(['onDelta', d]),
+    onDone: (d) => events.push(['onDone', d]),
+    onError: (d) => events.push(['onError', d]),
+  };
+  return {
+    sink,
+    attach(live) {
+      for (const [name, data] of events) live[name]?.(data);
+      events.length = 0;
+      sink.canReset = live.canReset;
+      for (const name of ['onQueued', 'onAssigned', 'onFallback', 'onReset', 'onDelta', 'onDone', 'onError']) {
+        sink[name] = (d) => live[name]?.(d);
+      }
+    },
+  };
+}
 
 const ROLES = new Set(['system', 'user', 'assistant']);
 
@@ -220,27 +246,20 @@ export function apiRouter(coordinator) {
 
   router.post('/chat/stream', auth.requireAuth, async (req, res, next) => {
     const key = `chat:${req.user.id}`;
-    if (!chatLimiter.take(key)) {
+    if (!accountChatLimiter.take(key)) {
       return res.status(429).json({ error: 'rate_limited', message: `At most ${config.limits.chatPerMinute} messages per minute.` });
     }
     let messages;
     try { messages = normalizeMessages(req.body?.messages); }
     catch (err) { return res.status(400).json({ error: 'bad_request', message: err.message }); }
 
-    res.set({
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-cache, no-transform',
-      connection: 'keep-alive',
-      'x-accel-buffering': 'no',
-      // The route chosen when the response opened. A job that only later loses its
-      // volunteer carries a `fallback` event and a `servedBy` in the final `done`,
-      // which are the authoritative answer.
-      'x-bonsai-served-by': coordinator.likelyRoute(),
+    const buf = bufferingSink();
+    let job = null;
+    let closed = false;
+    res.on('close', () => {
+      closed = true;
+      if (job) coordinator.cancel(job.id, req.user.id).catch(() => {});
     });
-    res.flushHeaders?.();
-
-    const { sink, close } = sseSink(res);
-    let job;
     try {
       job = await coordinator.submit({
         user: req.user,
@@ -248,15 +267,26 @@ export function apiRouter(coordinator) {
         maxNewTokens: req.body?.maxTokens,
         enableThinking: Boolean(req.body?.thinking),
         clientIp: clientIp(req, { trustProxy: config.trustProxy }),
-        sink,
+        sink: buf.sink,
       });
     } catch (err) {
-      sink.onError({ status: 'failed', error: err.message, code: err.code || 'error', ...(err.details || {}) });
-      return close();
+      const status = err.code === 'insufficient_coins' ? 402 : err.code === 'too_many_requests' ? 429 : 503;
+      return res.status(status).json({ error: err.code || 'error', message: err.message, ...(err.details || {}) });
     }
-    // `req` emits 'close' as soon as the request body is read, so the client-gone
-    // signal is on the response. Cancelling an already finished job is a no-op.
-    res.on('close', () => { coordinator.cancel(job.id, req.user.id).catch(() => {}); });
+    if (closed) {
+      await coordinator.cancel(job.id, req.user.id).catch(() => {});
+      return res.status(499).end();
+    }
+    res.set({
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+      'x-bonsai-served-by': coordinator.likelyRoute(),
+    });
+    res.flushHeaders?.();
+    const { sink } = sseSink(res);
+    buf.attach(sink);
   });
 
   router.post('/chat/cancel', auth.requireAuth, async (req, res) => {
