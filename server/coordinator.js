@@ -372,7 +372,7 @@ export class Coordinator {
     return this.withUserLock(opts.user.id, () => this.submitLocked(opts));
   }
 
-  async submitLocked({ user, messages, maxNewTokens, enableThinking = false, sink, clientIp = null }) {
+  async submitLocked({ user, messages, maxNewTokens, enableThinking = false, sink, clientIp = null, allowMock = false }) {
     const promptTokens = estimatePromptTokens(messages);
     const balance = Number((await pool.query('SELECT balance FROM users WHERE id=$1', [user.id])).rows[0]?.balance ?? 0);
     const reserved = this.reservedFor(user.id);
@@ -420,6 +420,7 @@ export class Coordinator {
       idleTimer: null,
       cappedByBalance: cap < Math.min(config.jobs.maxNewTokens, Number(maxNewTokens) || config.jobs.defaultMaxNewTokens),
       clientIp,
+      allowMock: Boolean(allowMock),
       servedBy: 'community',
       fallbackTimer: null,
       fallbackModel: null,
@@ -625,6 +626,7 @@ export class Coordinator {
     const candidates = [];
     for (const p of this.providers.values()) {
       if (p.state !== 'ready' || !p.admitted) continue;
+      if (p.isMock && !job.allowMock) continue;           // mock GPUs only serve test-mode consumers
       if (p.userId === job.consumerId) continue;          // no self-serving: own prompts never earn AI Coins
       if (job.triedProviders.has(p.id)) continue;
       if (now() - p.lastSeen > config.provider.staleMs) continue;

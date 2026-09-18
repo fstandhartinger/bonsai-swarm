@@ -259,6 +259,25 @@ test('the mock provider needs the shared test key; a normal account cannot fake 
   assert.equal(srv.coordinator.providers.size, 0);
 });
 
+test('a mock GPU is not given to a consumer who did not present the test key', async () => {
+  const host = client(srv.url); await signUp(host, 'mockgate');
+  await spawnProvider(await createToken(host), { tokens: 4 });
+  const user = client(srv.url); await signUp(user, 'organicuser');
+  const controller = new AbortController();
+  const res = await fetch(`${srv.url}/api/chat/stream`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: srv.url, cookie: user.cookie },
+    body: JSON.stringify({ messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 }),
+    signal: controller.signal,
+  });
+  assert.equal(res.status, 200);
+  await waitFor(() => [...srv.coordinator.jobs.values()].some((j) => j.consumerId), 2000);
+  const job = [...srv.coordinator.jobs.values()][0];
+  assert.equal(job.status, 'queued');
+  assert.equal(job.providerId, null);
+  controller.abort();
+});
+
 test('a demoted provider cannot re-admit itself with another claimed benchmark', async () => {
   const host = client(srv.url); await signUp(host, 'slowpoke');
   const p = await spawnProvider(await createToken(host), { tokens: 8, delayMs: 80 });

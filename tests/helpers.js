@@ -74,6 +74,7 @@ export function client(baseUrl) {
           ...(body ? { 'content-type': 'application/json' } : {}),
           ...(cookie ? { cookie } : {}),
           ...(noOrigin ? {} : { origin }),
+          ...(TEST_KEY && !headers['x-test-mode-key'] ? { 'x-test-mode-key': TEST_KEY } : {}),
           ...headers,
         },
         body: body ? JSON.stringify(body) : undefined,
@@ -138,7 +139,12 @@ export async function openSse(baseUrl, path, { body, headers = {}, cookie = '' }
   const controller = new AbortController();
   const res = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', origin: baseUrl, ...(cookie ? { cookie } : {}), ...headers },
+    headers: {
+      'content-type': 'application/json', origin: baseUrl,
+      ...(cookie ? { cookie } : {}),
+      ...(TEST_KEY ? { 'x-test-mode-key': TEST_KEY } : {}),
+      ...headers,
+    },
     body: JSON.stringify(body),
     signal: controller.signal,
   });
