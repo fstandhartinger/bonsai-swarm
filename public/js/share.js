@@ -34,12 +34,14 @@ const state = {
 const ui = {};
 
 async function boot() {
-  // The downloadable client opens this page with #token=... so the browser it starts
-  // is signed in without anyone typing a password. The fragment never reaches a log.
-  if (location.hash.startsWith('#token=')) {
-    const token = decodeURIComponent(location.hash.slice(7));
+  // The downloadable client opens this page with #code=... - a single-use, 60-second
+  // hand-off code, never the API token itself. The fragment never reaches a log.
+  if (location.hash.startsWith('#code=') || location.hash.startsWith('#token=')) {
+    const isCode = location.hash.startsWith('#code=');
+    const value = decodeURIComponent(location.hash.slice(isCode ? 6 : 7));
     history.replaceState(null, '', location.pathname + location.search);
-    await api('/api/auth/token-session', { method: 'POST', body: { token } }).catch(() => {});
+    await api('/api/auth/token-session', { method: 'POST', body: isCode ? { code: value } : { token: value } })
+      .catch((err) => { if (err.code === 'already_signed_in') alert(err.message); });
   }
   const me = await mountChrome();
   if (!requireSignIn(me)) return;

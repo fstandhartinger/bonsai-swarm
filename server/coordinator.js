@@ -32,6 +32,7 @@ export class Coordinator {
     this.queue = [];              // job ids, FIFO
     this.tokensServedToday = 0;
     this.timers = [];
+    this.userLocks = new Map();   // userId -> tail of that account's submit chain
   }
 
   start() {
@@ -73,6 +74,9 @@ export class Coordinator {
       minutesCredited: 0,
       tokensServed: 0,
       jobsServed: 0,
+      claimedTps: null,
+      measuredTps: null,      // what this server timed while the provider answered
+      slowJobs: 0,
     };
     this.providers.set(provider.id, provider);
     await pool.query(
@@ -157,12 +161,21 @@ export class Coordinator {
     }
   }
 
+  /**
+   * A provider measures itself, so this number is a *claim*. It is clamped to something
+   * physically possible, it only decides admission (there is no way to verify a
+   * volunteer's hardware from here), and it deliberately does NOT decide who gets the
+   * next job - see pickProvider(). Every job is then timed by this server, and a
+   * provider whose real throughput does not hold up loses its admission.
+   */
   async handleBenchmark(provider, msg) {
-    const tps = Number(msg.decodeTps);
+    const raw = Number(msg.decodeTps);
+    const tps = Number.isFinite(raw) ? Math.min(Math.max(raw, 0), config.provider.maxClaimedTps) : 0;
     const ttft = Number(msg.ttftMs);
-    provider.decodeTps = Number.isFinite(tps) ? Math.round(tps * 1000) / 1000 : null;
+    provider.claimedTps = tps;
+    provider.decodeTps = Math.round(tps * 1000) / 1000;
     provider.ttftMs = Number.isFinite(ttft) ? Math.round(ttft) : null;
-    const fast = (provider.decodeTps ?? 0) >= config.provider.minDecodeTps;
+    const fast = tps >= config.provider.minDecodeTps;
     provider.admitted = fast || provider.adminOverride;
     await pool.query(
       'UPDATE provider_sessions SET admitted=$2, decode_tps=$3, ttft_ms=$4, gpu_label=$5 WHERE id=$1',
@@ -228,9 +241,18 @@ export class Coordinator {
    */
   async creditOnlineMinutes(only = null) {
     const list = only ? [only] : [...this.providers.values()];
+    // Minutes are paid per *account*, not per socket: ten tabs (or ten fake sockets)
+    // from one account are still one machine's worth of time.
+    const paidThisPass = new Set();
     for (const p of list) {
       const eligible = p.admitted && (p.state === 'ready' || p.state === 'busy') && now() - p.lastSeen < config.provider.staleMs;
       if (!eligible || p.creditedFrom === null) continue;
+      const earningSibling = [...this.providers.values()].find(
+        (o) => o.userId === p.userId && o.id !== p.id && o.admitted && o.creditedFrom !== null
+          && (o.state === 'ready' || o.state === 'busy') && o.connectedAt < p.connectedAt,
+      );
+      if (earningSibling || paidThisPass.has(p.userId)) { p.creditedFrom = now(); continue; }
+      paidThisPass.add(p.userId);
       const elapsedMinutes = Math.floor((now() - p.creditedFrom) / 60_000);
       if (elapsedMinutes < 1) continue;
       p.creditedFrom += elapsedMinutes * 60_000;
@@ -255,7 +277,34 @@ export class Coordinator {
    * @param {Array}  opts.messages   chat messages
    * @param {object} opts.sink       { onQueued, onAssigned, onDelta, onDone, onError }
    */
-  async submit({ user, messages, maxNewTokens, enableThinking = false, sink }) {
+  /**
+   * Serialises everything one account does, so the "can you afford this?" check and the
+   * reservation that answers it cannot interleave with a second request from the same
+   * account. Without this, two parallel requests both read the old balance and the
+   * account can spend coins it does not have.
+   */
+  async withUserLock(userId, fn) {
+    const key = Number(userId);
+    const previous = this.userLocks.get(key) || Promise.resolve();
+    let release;
+    const mine = new Promise((resolve) => { release = resolve; });
+    const tail = previous.then(() => mine);
+    this.userLocks.set(key, tail);
+    await previous.catch(() => {});
+    try {
+      return await fn();
+    } finally {
+      release();
+      // Drop the entry once nobody is queued behind us, so the map cannot grow forever.
+      if (this.userLocks.get(key) === tail) this.userLocks.delete(key);
+    }
+  }
+
+  submit(opts) {
+    return this.withUserLock(opts.user.id, () => this.submitLocked(opts));
+  }
+
+  async submitLocked({ user, messages, maxNewTokens, enableThinking = false, sink }) {
     const promptTokens = estimatePromptTokens(messages);
     const balance = Number((await pool.query('SELECT balance FROM users WHERE id=$1', [user.id])).rows[0]?.balance ?? 0);
     const reserved = this.reservedFor(user.id);
@@ -320,16 +369,33 @@ export class Coordinator {
     return roundCoins(total);
   }
 
+  /**
+   * Picks a provider at random among those that are ready.
+   *
+   * Deliberately NOT "the fastest": the speed a browser reports is self-declared, so
+   * ranking by it would hand every prompt in the network to whoever lies hardest.
+   * Random choice bounds a liar's share to 1/N and keeps prompts spread across
+   * volunteers. Server-measured throughput (measuredTps) is used only as a mild
+   * weight, and only after this server has timed the provider itself.
+   */
   pickProvider(job) {
-    let best = null;
+    const candidates = [];
     for (const p of this.providers.values()) {
       if (p.state !== 'ready' || !p.admitted) continue;
       if (p.userId === job.consumerId) continue;          // no self-serving: own prompts never earn AI Coins
       if (job.triedProviders.has(p.id)) continue;
       if (now() - p.lastSeen > config.provider.staleMs) continue;
-      if (!best || (p.decodeTps ?? 0) > (best.decodeTps ?? 0)) best = p;
+      candidates.push(p);
     }
-    return best;
+    if (!candidates.length) return null;
+    const weightOf = (p) => (p.measuredTps ? Math.min(3, Math.max(0.5, p.measuredTps / config.provider.minDecodeTps)) : 1);
+    const total = candidates.reduce((sum, p) => sum + weightOf(p), 0);
+    let pick = Math.random() * total;
+    for (const p of candidates) {
+      pick -= weightOf(p);
+      if (pick <= 0) return p;
+    }
+    return candidates[candidates.length - 1];
   }
 
   dispatch() {
@@ -414,8 +480,11 @@ export class Coordinator {
   handleDelta(provider, msg) {
     const job = this.jobs.get(msg.jobId);
     if (!job || job.providerId !== provider.id || job.status !== 'running') return;
-    const delta = typeof msg.delta === 'string' ? msg.delta : '';
+    let delta = typeof msg.delta === 'string' ? msg.delta : '';
     if (!delta) return;
+    // One frame is billed as one token, so a frame may not be longer than a token can
+    // be: without this a provider could bill a whole paragraph as a single token.
+    if (delta.length > config.provider.maxDeltaChars) delta = delta.slice(0, config.provider.maxDeltaChars);
 
     // The coordinator - not the provider - decides how many tokens were produced.
     job.completionTokens += 1;
@@ -468,6 +537,34 @@ export class Coordinator {
       this.releaseProvider(provider);
     }
 
+    // What this server actually timed, as opposed to what the browser claimed.
+    if (provider && job.firstTokenAt && job.completionTokens >= 4) {
+      const seconds = (now() - job.firstTokenAt) / 1000;
+      const measured = seconds > 0 ? job.completionTokens / seconds : 0;
+      provider.measuredTps = provider.measuredTps
+        ? provider.measuredTps * 0.5 + measured * 0.5
+        : measured;
+      if (measured < config.provider.minDecodeTps * 0.6) {
+        provider.slowJobs = (provider.slowJobs || 0) + 1;
+        if (provider.slowJobs >= config.provider.demoteAfterSlowJobs && provider.admitted) {
+          provider.admitted = false;
+          provider.state = 'rejected';
+          provider.creditedFrom = null;
+          this.send(provider, {
+            type: 'admission',
+            admitted: false,
+            decodeTps: Math.round(measured * 10) / 10,
+            minDecodeTps: config.provider.minDecodeTps,
+            reason: `Measured ${measured.toFixed(1)} tokens/s while actually answering, `
+              + `below the ${config.provider.minDecodeTps} the swarm needs. You can still chat.`,
+          });
+          this.log.warn?.(`[coord] demoted provider ${provider.id.slice(0, 8)} at ${measured.toFixed(1)} tok/s`);
+        }
+      } else {
+        provider.slowJobs = 0;
+      }
+    }
+
     const completionTokens = job.completionTokens;
     // Nothing was delivered -> nothing is charged and nothing is earned.
     const billable = completionTokens > 0;
@@ -508,10 +605,19 @@ export class Coordinator {
             }
           }
         }
-        if (earned > 0 && job.providerUserId && job.providerUserId !== job.consumerId) {
+        // The provider is paid out of what the consumer actually paid. If the consumer
+        // could only be charged part of the cost (a balance that moved under us), the
+        // payout shrinks by the same fraction - otherwise the difference would be new
+        // coins minted out of nothing.
+        const settledShare = cost > 0 ? Math.min(1, charged / cost) : 0;
+        const payout = roundCoins(earned * settledShare);
+        if (payout > 0 && job.providerUserId && job.providerUserId !== job.consumerId) {
           await post(client, {
-            userId: job.providerUserId, kind: 'serve_tokens', coins: earned, jobId: job.id,
-            meta: { completion_tokens: completionTokens, mock: job.isMock, night: job.servedAtNight === true },
+            userId: job.providerUserId, kind: 'serve_tokens', coins: payout, jobId: job.id,
+            meta: {
+              completion_tokens: completionTokens, mock: job.isMock, night: job.servedAtNight === true,
+              ...(settledShare < 1 ? { partial: Math.round(settledShare * 1000) / 1000 } : {}),
+            },
           });
         }
       });

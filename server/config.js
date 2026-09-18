@@ -53,6 +53,17 @@ export const config = {
     heartbeatMs: num('PROVIDER_HEARTBEAT_MS', 20000),
     // A provider that has not been heard from for this long is dropped.
     staleMs: num('PROVIDER_STALE_MS', 75000),
+    // A browser reports its own benchmark result, so the number is capped at something
+    // physically plausible and is only ever a tie-breaker - never a licence to take
+    // every job. See coordinator.pickProvider().
+    maxClaimedTps: num('PROVIDER_MAX_CLAIMED_TPS', 120),
+    // A single streamed delta is one token. Real tokens are short; anything longer is
+    // a provider trying to bill a paragraph as one token.
+    maxDeltaChars: num('PROVIDER_MAX_DELTA_CHARS', 48),
+    // How many browsers one account may have connected at once.
+    maxSessionsPerUser: num('PROVIDER_MAX_SESSIONS_PER_USER', 3),
+    // Server-measured throughput below this, twice in a row, drops the admission.
+    demoteAfterSlowJobs: num('PROVIDER_DEMOTE_AFTER_SLOW_JOBS', 2),
   },
 
   jobs: {

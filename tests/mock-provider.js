@@ -12,8 +12,13 @@
 import WebSocket from 'ws';
 
 export class MockProvider {
-  constructor({ url, token, testKey, decodeTps = 42, tokens = 8, delayMs = 5, override = false, label = 'Mock GPU' }) {
-    Object.assign(this, { url, token, testKey, decodeTps, tokens, delayMs, override, label });
+  constructor({
+    url, token, testKey, decodeTps = 42, tokens = 8, delayMs = 5, override = false, label = 'Mock GPU',
+    // `deltaText` lets a test play the part of a *malicious* provider that tries to bill
+    // a whole paragraph as one token.
+    deltaText = null,
+  }) {
+    Object.assign(this, { url, token, testKey, decodeTps, tokens, delayMs, override, label, deltaText });
     this.served = 0;
     this.cancelled = new Set();
     this.ready = new Promise((resolve, reject) => { this._resolveReady = resolve; this._rejectReady = reject; });
@@ -66,7 +71,7 @@ export class MockProvider {
     for (let i = 0; i < count; i += 1) {
       if (this.cancelled.has(job.jobId)) return;
       await new Promise((r) => setTimeout(r, this.delayMs));
-      this.send({ type: 'job.delta', jobId: job.jobId, delta: i === 0 ? 'mock' : ` t${i}` });
+      this.send({ type: 'job.delta', jobId: job.jobId, delta: this.deltaText ?? (i === 0 ? 'mock' : ` t${i}`) });
     }
     if (this.cancelled.has(job.jobId)) return;
     this.served += 1;

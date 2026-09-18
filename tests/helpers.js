@@ -41,8 +41,21 @@ export async function startTestServer(overrides = {}) {
   };
 }
 
+/**
+ * Settlement and badge evaluation run after a job finishes, so a TRUNCATE right after a
+ * test can collide with a transaction that is still committing. Retry rather than fail.
+ */
 export async function resetDb() {
-  await pool.query('TRUNCATE ledger, jobs, provider_sessions, api_tokens, login_attempts, users RESTART IDENTITY CASCADE');
+  const attempts = 6;   // no parameter: node:test passes the test context to beforeEach hooks
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      await pool.query('TRUNCATE ledger, achievements, jobs, provider_sessions, api_tokens, login_attempts, users RESTART IDENTITY CASCADE');
+      return;
+    } catch (err) {
+      if (i === attempts - 1) throw err;
+      await new Promise((r) => setTimeout(r, 120 * (i + 1)));
+    }
+  }
 }
 
 /** Tiny fetch wrapper that keeps cookies, like a browser would. */

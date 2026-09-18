@@ -45,6 +45,29 @@ export function isTestMode(req) {
   return offered.length > 0 && timingSafeEqual(offered, config.testModeKey);
 }
 
+// ------------------------------------------------------------ browser hand-off
+
+/**
+ * Single-use, 60-second codes that let the CLI hand a browser a session without ever
+ * putting the long-lived API token into a URL or a process list.
+ */
+const handoffCodes = new Map();   // code -> { userId, exp }
+
+export function createHandoffCode(userId) {
+  const code = randomToken(24);
+  handoffCodes.set(code, { userId: Number(userId), exp: Date.now() + 60_000 });
+  for (const [k, v] of handoffCodes) if (v.exp < Date.now()) handoffCodes.delete(k);
+  return code;
+}
+
+export async function userFromHandoffCode(code) {
+  const entry = handoffCodes.get(String(code));
+  if (!entry) return null;
+  handoffCodes.delete(String(code));           // single use, even if expired
+  if (entry.exp < Date.now()) return null;
+  return findUserById(entry.userId);
+}
+
 // ---------------------------------------------------------------- login throttle
 
 export async function tooManyAttempts(key, limit, windowMinutes) {

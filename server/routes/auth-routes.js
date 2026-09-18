@@ -12,7 +12,7 @@ export function authRouter() {
 
   router.post('/signup', async (req, res) => {
     const { username, password } = req.body || {};
-    const ip = clientIp(req);
+    const ip = clientIp(req, { trustProxy: config.trustProxy });
     const testMode = auth.isTestMode(req);
     if (!testMode && await auth.tooManyAttempts(`signup:${ip}`, config.limits.signupPerDay, 24 * 60)) {
       return res.status(429).json({ error: 'rate_limited', message: 'Too many new accounts from this connection today.' });
@@ -38,7 +38,7 @@ export function authRouter() {
 
   router.post('/login', async (req, res) => {
     const { username, password } = req.body || {};
-    const ip = clientIp(req);
+    const ip = clientIp(req, { trustProxy: config.trustProxy });
     const ipKey = `login-ip:${ip}`;
     const userKey = `login-user:${String(username || '').toLowerCase().slice(0, 64)}`;
     if (await auth.tooManyAttempts(ipKey, config.limits.loginPerHour, 60)
@@ -72,14 +72,47 @@ export function authRouter() {
   });
 
   /**
-   * The local CLI opens the provider page with an API token in the URL fragment; the
-   * page trades it for a normal session cookie here so the browser tab behaves like a
-   * signed-in user. The fragment never reaches the server logs.
+   * Browser hand-off for the downloadable client.
+   *
+   * The CLI holds a long-lived API token. It does not put that token in a URL - it
+   * exchanges it here for a **single-use code that expires in 60 seconds** and starts
+   * the browser with the code in the fragment. Worst case for a leaked code is one
+   * session, one minute; a leaked token would be the whole account.
+   */
+  router.post('/handoff', async (req, res) => {
+    const header = req.headers.authorization || '';
+    const user = header.startsWith('Bearer ') ? await auth.userFromApiToken(header.slice(7).trim()) : null;
+    if (!user) return res.status(401).json({ error: 'bad_token', message: 'A valid API token is required.' });
+    res.json({ code: auth.createHandoffCode(user.id), expiresInSeconds: 60 });
+  });
+
+  /**
+   * The provider page trades the hand-off code (or, for older clients, the token
+   * itself) for a normal session cookie.
+   *
+   * It refuses when this browser is already signed in as somebody else: otherwise a
+   * crafted link could quietly move a visitor into the attacker's account, where their
+   * GPU would earn for the attacker and their chats would be paid from - and visible
+   * in - the attacker's ledger.
    */
   router.post('/token-session', async (req, res) => {
+    const ip = clientIp(req, { trustProxy: config.trustProxy });
+    if (await auth.tooManyAttempts(`handoff:${ip}`, 30, 60)) {
+      return res.status(429).json({ error: 'rate_limited', message: 'Too many attempts. Try again later.' });
+    }
+    await auth.recordAttempt(`handoff:${ip}`);
+
+    const code = String(req.body?.code || '');
     const token = String(req.body?.token || '');
-    const user = await auth.userFromApiToken(token);
-    if (!user) return res.status(401).json({ error: 'bad_token', message: 'That API token is not valid.' });
+    const user = code ? await auth.userFromHandoffCode(code) : await auth.userFromApiToken(token);
+    if (!user) return res.status(401).json({ error: 'bad_token', message: 'That sign-in link is not valid any more.' });
+
+    if (req.user && Number(req.user.id) !== Number(user.id)) {
+      return res.status(409).json({
+        error: 'already_signed_in',
+        message: 'This browser is signed in as somebody else. Sign out first, then run the client again.',
+      });
+    }
     auth.issueSession(res, user);
     res.json({ ok: true, user: publicUser(user) });
   });

@@ -103,7 +103,8 @@ export async function createServer({ migrateDb = true } = {}) {
  * so an unauthenticated peer never gets a WebSocket at all.
  */
 function attachProviderSocket(server, coordinator) {
-  const wss = new WebSocketServer({ noServer: true });
+  // A provider frame carries one token plus a job id - a kilobyte is already generous.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
 
   server.on('upgrade', async (req, socket, head) => {
     const url = new URL(req.url, 'http://localhost');
@@ -120,6 +121,12 @@ function attachProviderSocket(server, coordinator) {
       const origin = req.headers.origin;
       if (origin && !authModule.isSameSiteOrigin(req, origin)) {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); return socket.destroy();
+      }
+
+      // One account may not open an unbounded number of provider sockets.
+      const mine = coordinator.providerViewFor(user.id).length;
+      if (mine >= config.provider.maxSessionsPerUser) {
+        socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n'); return socket.destroy();
       }
 
       // Test mode: a deterministic fake provider, and admission for a slow GPU.

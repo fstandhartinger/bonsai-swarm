@@ -79,9 +79,23 @@ export class RateLimiter {
   }
 }
 
-export function clientIp(req) {
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.length) return fwd.split(',')[0].trim();
+/**
+ * The address we rate-limit on.
+ *
+ * `x-forwarded-for` is attacker-controlled: anyone can send one. It is only consulted
+ * when we know we are behind our own proxy (TRUST_PROXY), and then we take the *last*
+ * entry - the one our proxy appended - not the first, which the client wrote.
+ */
+export function clientIp(req, { trustProxy = true } = {}) {
+  if (trustProxy) {
+    const fwd = req.headers['x-forwarded-for'];
+    if (typeof fwd === 'string' && fwd.length) {
+      const hops = fwd.split(',').map((s) => s.trim()).filter(Boolean);
+      if (hops.length) return hops[hops.length - 1];
+    }
+    const real = req.headers['x-real-ip'];
+    if (typeof real === 'string' && real.trim()) return real.trim();
+  }
   return req.socket?.remoteAddress || 'unknown';
 }
 

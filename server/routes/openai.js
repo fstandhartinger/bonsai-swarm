@@ -3,6 +3,11 @@ import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { requireAuth } from '../auth.js';
 import { normalizeMessages } from './api.js';
+import { RateLimiter } from '../util.js';
+
+// Same budget as the web chat: one account, so many requests a minute, whichever door
+// it comes through.
+const apiLimiter = new RateLimiter(config.limits.chatPerMinute, 60_000);
 
 export const MODEL_NAME = 'bonsai-swarm/ternary-bonsai-2-27b';
 
@@ -31,6 +36,10 @@ export function openaiRouter(coordinator) {
   });
 
   router.post('/chat/completions', requireAuth, async (req, res) => {
+    if (!apiLimiter.take(`api:${req.user.id}`)) {
+      return openaiError(res, 429, `At most ${config.limits.chatPerMinute} requests per minute.`,
+        'rate_limit_error', 'rate_limited');
+    }
     const body = req.body || {};
     let messages;
     try { messages = normalizeMessages(body.messages); }

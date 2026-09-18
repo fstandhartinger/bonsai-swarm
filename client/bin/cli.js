@@ -119,7 +119,7 @@ async function provide() {
   console.log('Other people\'s prompts will be processed on this computer. Close the browser window to stop.\n');
   try { console.log(`Browser: ${findChrome(flag('chrome'))}`); } catch (err) { die(err.message); }
 
-  const child = launchBrowser({
+  const child = await launchBrowser({
     url,
     token,
     chromePath: typeof flag('chrome') === 'string' ? flag('chrome') : null,

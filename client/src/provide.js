@@ -82,7 +82,23 @@ export const LINUX_WEBGPU_FLAGS = [
   '--enable-gpu-rasterization',
 ];
 
-export function buildArgs({ url, token, profileDir, extraFlags = [], override = false, autostart = true }) {
+/**
+ * Trades the stored API token for a single-use, 60-second hand-off code, so the token
+ * never appears in a URL, a browser history entry or this machine's process list.
+ */
+export async function handoffCode({ url, token }) {
+  const res = await fetch(`${url}/api/auth/handoff`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: '{}',
+  });
+  if (!res.ok) throw new Error(`The server refused the hand-off (${res.status}). Run "bonsai-swarm login" again.`);
+  const { code } = await res.json();
+  if (!code) throw new Error('The server did not return a hand-off code.');
+  return code;
+}
+
+export function buildArgs({ url, token, code, profileDir, extraFlags = [], override = false, autostart = true }) {
   const target = new URL('/share.html', url);
   if (override) target.searchParams.set('override', '1');
   // The user asked for `provide` on the command line, so the page does not ask again.
@@ -95,15 +111,21 @@ export function buildArgs({ url, token, profileDir, extraFlags = [], override = 
     ...extraFlags,
     `--user-data-dir=${profileDir}`,
     '--new-window',
-    `${target.toString()}#token=${encodeURIComponent(token)}`,
+    `${target.toString()}#${code ? `code=${encodeURIComponent(code)}` : `token=${encodeURIComponent(token)}`}`,
   ];
 }
 
-export function launchBrowser({ url, token, chromePath = null, override = false, extraFlags = [], log = console.log }) {
+export async function launchBrowser({ url, token, chromePath = null, override = false, extraFlags = [], log = console.log }) {
   const binary = findChrome(chromePath);
   const profileDir = path.join(configDir(), 'browser-profile');
   mkdirSync(profileDir, { recursive: true });
-  const args = buildArgs({ url, token, profileDir, extraFlags, override });
+  const code = await handoffCode({ url, token });
+  // Chrome refuses to run as root without this, which is exactly what a rented GPU box
+  // or a container does. It is not weakening anything a local user could not already do.
+  const rootFlags = process.platform === 'linux' && typeof process.getuid === 'function' && process.getuid() === 0
+    ? ['--no-sandbox', '--disable-dev-shm-usage']
+    : [];
+  const args = buildArgs({ url, token, code, profileDir, extraFlags: [...rootFlags, ...extraFlags], override });
 
   log(`Starting ${path.basename(binary)}…`);
   log(`Profile (keeps the model cached): ${profileDir}`);

@@ -138,15 +138,17 @@ test('one provider serves one job at a time; the second request waits in the que
 test('when a provider drops before the first token the job is re-queued to another one', async () => {
   const flaky = client(srv.url); await signUp(flaky, 'flaky');
   const solid = client(srv.url); await signUp(solid, 'solid');
+  // Only the flaky provider exists when the job is submitted, so it is certain to get
+  // it (the coordinator picks at random among whoever is ready).
   const pFlaky = await spawnProvider(await createToken(flaky), { tokens: 5, delayMs: 1500, decodeTps: 99 });
-  await spawnProvider(await createToken(solid), { tokens: 5, delayMs: 5, decodeTps: 50 });
 
   const user = client(srv.url); await signUp(user, 'user6');
   const stream = await openSse(srv.url, '/api/chat/stream', {
     cookie: user.cookie, body: { messages: [{ role: 'user', content: 'survive a drop' }] },
   });
   await stream.until((e) => e.some((x) => x.event === 'assigned'), 10_000);
-  pFlaky.close();                                   // the fast provider vanishes mid-job
+  await spawnProvider(await createToken(solid), { tokens: 5, delayMs: 5, decodeTps: 50 });
+  pFlaky.close();                                   // the busy provider vanishes mid-job
 
   await stream.until((e) => e.some((x) => x.event === 'done'), 20_000);
   const queued = stream.events.filter((e) => e.event === 'queued');
@@ -257,4 +259,98 @@ test('the mock provider needs the shared test key; a normal account cannot fake 
   const provider = [...srv.coordinator.providers.values()][0];
   assert.equal(provider.isMock, false, 'without the right key the connection is a normal provider, not a mock');
   assert.equal(provider.adminOverride, false);
+});
+
+// --------------------------------------------------------- trust the server, not the browser
+// A provider is a stranger's machine that can send whatever it likes down the socket.
+// These are the guarantees that hold even when it lies.
+
+test('a provider cannot claim an impossible speed to be handed every prompt', async () => {
+  const liar = client(srv.url); await signUp(liar, 'liar');
+  const p = await spawnProvider(await createToken(liar), { tokens: 3, decodeTps: 100000 });
+  assert.equal(p.admitted, true);
+  const [view] = [...srv.coordinator.providers.values()];
+  assert.ok(view.decodeTps <= 120, `claimed speed must be capped, saw ${view.decodeTps}`);
+});
+
+test('a long delta is still only one token, so nobody can bill a paragraph as a token', async () => {
+  const host = client(srv.url); await signUp(host, 'fathost');
+  await spawnProvider(await createToken(host), { tokens: 3, deltaText: 'x'.repeat(5000) });
+  const user = client(srv.url); await signUp(user, 'fatuser');
+
+  const stream = await openSse(srv.url, '/api/chat/stream', {
+    cookie: user.cookie, body: { messages: [{ role: 'user', content: 'bill me' }], maxTokens: 16 },
+  });
+  await stream.until((e) => e.some((x) => x.event === 'done'), 15_000);
+  const done = stream.events.find((e) => e.event === 'done').data;
+  assert.equal(done.completionTokens, 3);
+  const delta = stream.events.find((e) => e.event === 'delta').data.delta;
+  assert.ok(delta.length <= 48, `a delta must be truncated to a token's worth, saw ${delta.length}`);
+});
+
+test('online minutes are paid per account, not per socket', async () => {
+  const farmer = client(srv.url); await signUp(farmer, 'farmer');
+  const token = await createToken(farmer);
+  await spawnProvider(token, { tokens: 2 });
+  await spawnProvider(token, { tokens: 2 });
+  await spawnProvider(token, { tokens: 2 });
+
+  // pretend all three have been online and ready for two minutes
+  for (const p of srv.coordinator.providers.values()) p.creditedFrom = Date.now() - 125_000;
+  await srv.coordinator.creditOnlineMinutes();
+
+  const { rows } = await pool.query(
+    "SELECT COALESCE(SUM(coins),0)::float AS total FROM ledger WHERE kind='provide_minutes'");
+  assert.ok(rows[0].total <= 2 * 2, `three tabs must not earn three times the minutes, got ${rows[0].total}`);
+  assert.ok(rows[0].total > 0, 'one of them should still earn');
+});
+
+test('a fourth provider socket for the same account is refused', async () => {
+  const many = client(srv.url); await signUp(many, 'manytabs');
+  const token = await createToken(many);
+  await spawnProvider(token, { tokens: 2 });
+  await spawnProvider(token, { tokens: 2 });
+  await spawnProvider(token, { tokens: 2 });
+  await assert.rejects(() => spawnProvider(token, { tokens: 2 }), /handshake 429|socket hang up/);
+});
+
+test('parallel requests cannot spend AI Coins the account does not have', async () => {
+  const host = client(srv.url); await signUp(host, 'parhost');
+  await spawnProvider(await createToken(host), { tokens: 10, delayMs: 30 });
+  const user = client(srv.url); const u = await signUp(user, 'paruser');
+  // leave just enough for roughly one short answer
+  await pool.query("INSERT INTO ledger (user_id, kind, coins) VALUES ($1,'admin_adjust',$2)", [u.id, 6 - 1000]);
+  await pool.query('UPDATE users SET balance = 6 WHERE id = $1', [u.id]);
+
+  const body = { messages: [{ role: 'user', content: 'spend it twice' }], maxTokens: 10 };
+  const streams = await Promise.all([
+    openSse(srv.url, '/api/chat/stream', { cookie: user.cookie, body }),
+    openSse(srv.url, '/api/chat/stream', { cookie: user.cookie, body }),
+  ]);
+  for (const s of streams) await s.until((e) => e.some((x) => x.event === 'done' || x.event === 'error'), 20_000);
+
+  await waitFor(async () => {
+    const { rows } = await pool.query('SELECT balance FROM users WHERE id=$1', [u.id]);
+    return Number(rows[0].balance) >= 0;
+  }, 5000);
+  const { rows } = await pool.query('SELECT balance FROM users WHERE id=$1', [u.id]);
+  assert.ok(Number(rows[0].balance) >= 0, `balance went negative: ${rows[0].balance}`);
+  const audit = await auditBalance(u.id);
+  assert.equal(audit.ok, true, `ledger and cached balance disagree: ${JSON.stringify(audit)}`);
+});
+
+test('a hand-off code works once and only for a minute', async () => {
+  const c = client(srv.url); await signUp(c, 'handoff');
+  const token = await createToken(c);
+  const first = await fetch(`${srv.url}/api/auth/handoff`, {
+    method: 'POST', headers: { authorization: `Bearer ${token}`, origin: srv.url },
+  });
+  const { code } = await first.json();
+  assert.ok(code);
+
+  const fresh = client(srv.url);
+  const ok = await fresh.req('/api/auth/token-session', { method: 'POST', body: { code } });
+  assert.equal(ok.status, 200);
+  const again = await client(srv.url).req('/api/auth/token-session', { method: 'POST', body: { code } });
+  assert.equal(again.status, 401, 'a hand-off code must not work twice');
 });
