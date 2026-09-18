@@ -140,3 +140,15 @@ CREATE TABLE IF NOT EXISTS visit_daily (
   visits        integer NOT NULL DEFAULT 0,
   PRIMARY KEY (day, path, referrer_host)
 );
+
+-- ---------------------------------------------------------------- google sign-in
+-- Sign-in moved to Google on 18 Sep 2026. The address is stored to recognise a
+-- returning account and for nothing else: it is never shown to other users, never used
+-- for mail, and the display name beside it stays the editable, public one.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email text;
+
+-- Marks a password account that was locked out when Google became the only way in. The
+-- row and its whole ledger stay - the history of who served what is not rewritten - but
+-- the account cannot be signed into any more. House and operator accounts are never
+-- marked: they authenticate with server-side API tokens, not through a login form.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS anon_locked boolean NOT NULL DEFAULT false;

@@ -15,30 +15,43 @@
   <section class="hero wrap">
     <canvas id="swarm-canvas" aria-hidden="true"></canvas>
     <span class="pill jade">Free · open source · no money, no crypto</span>
-    <h1 style="margin-top:20px">Share your GPU at night.<br><span class="grad">Use everyone else's by day.</span></h1>
-    <p class="lead">Bonsai Swarm runs the <b>Ternary Bonsai 2 27B</b> language model directly in your browser on
-      WebGPU — no install, no API key, no server farm. While your tab is open your graphics card answers other
-      people's prompts and earns <b>AI Coins</b>. When you need an answer, you spend them again.</p>
-    <div class="row" style="margin-top:28px">
-      <a class="btn primary" href="/share.html">Share my GPU</a>
-      <a class="btn" href="/chat.html">Open the chat</a>
-      <a class="btn ghost" href="https://github.com/fstandhartinger/bonsai-swarm">Source on GitHub ↗</a>
+    <h1 style="margin-top:18px">A 27B model, running in<br><span class="grad">somebody's spare graphics card.</span></h1>
+    <p class="lead">Ask it something — on any device, no download. Or keep a tab open and let <i>your</i> graphics
+      card answer other people, which is how you earn the <b>AI Coins</b> that pay for your own questions. One
+      Google sign-in covers both.</p>
+
+    <!-- The whole decision a first-time visitor has to make, in two cards. -->
+    <div class="paths">
+      <a class="path" href="/chat.html">
+        <span class="pill jade">Any device</span>
+        <h2>Chat with the swarm</h2>
+        <p>Nothing to download and no GPU needed. Sign in with Google once and you start with
+          <b id="p-welcome">1,000</b> AI Coins — enough for a few hundred answers.</p>
+        <span class="go">Start chatting <span aria-hidden="true">→</span></span>
+      </a>
+      <a class="path gpu" href="/share.html">
+        <span class="pill gold">Needs a real GPU</span>
+        <h2>Share my GPU</h2>
+        <p>We test your browser first and tell you honestly whether it is fast enough — before anything is
+          downloaded. Roughly <b>12 GB</b> of graphics memory and up.</p>
+        <span class="go">Check my GPU <span aria-hidden="true">→</span></span>
+      </a>
     </div>
-    <p class="small muted" style="margin-top:14px">Providing needs a GPU with ≈12 GB of memory or more. Chatting works on anything.</p>
   </section>
 
   <section class="wrap">
-    <div class="grid cols-3" id="stats">
+    <div class="grid cols-4" id="stats">
       <div class="stat hero-tile accent"><div class="v" id="s-providers">–</div><div class="k">GPUs online</div></div>
       <div class="stat hero-tile"><div class="v" id="s-capacity">–</div><div class="k">Swarm speed, tokens/s</div></div>
       <div class="stat hero-tile coin"><div class="v" id="s-tokens">–</div><div class="k">Tokens served today</div></div>
+      <div class="stat hero-tile"><div class="v" id="s-accounts">–</div><div class="k">People here</div></div>
     </div>
-    <div class="row small muted" style="margin-top:12px;gap:22px">
-      <span><b class="num" id="s-ready" style="color:var(--ink)">–</b> ready right now</span>
-      <span><b class="num" id="s-queue" style="color:var(--ink)">–</b> requests waiting</span>
-      <span><b class="num" id="s-accounts" style="color:var(--ink)">–</b> accounts</span>
-      <span style="margin-left:auto">Every number here comes straight out of the ledger.</span>
-    </div>
+    <p class="small muted" style="margin-top:10px">
+      <b class="num" id="s-ready" style="color:var(--ink)">–</b> ready right now ·
+      <b class="num" id="s-queue" style="color:var(--ink)">–</b> requests waiting ·
+      every number comes straight out of the ledger.
+      <span id="s-empty" hidden>Nobody is sharing a GPU this minute, so a free fallback model answers and says so.</span>
+    </p>
   </section>
 
   <section class="wrap">
@@ -156,6 +169,7 @@ const put = (id, value, format = fmt.int) => rollTo($(id), value, { format });
 async function refresh() {
   try {
     const s = await api('/api/stats');
+    $('#p-welcome').textContent = fmt.int(s.coins.welcome);
     put('#s-providers', s.providersOnline);
     put('#s-ready', s.providersReady);
     put('#s-capacity', s.capacityTps || 0, (n) => Number(n).toFixed(1));
@@ -163,6 +177,7 @@ async function refresh() {
     put('#s-queue', s.queueLength);
     put('#s-accounts', s.accounts);
     $('#min-tps').textContent = s.minDecodeTps;
+    $('#s-empty').hidden = s.providersReady > 0 || !s.fallbackEnabled;
   } catch { /* transient */ }
 }
 

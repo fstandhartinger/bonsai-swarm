@@ -25,9 +25,15 @@
 
   <h2>Welche Daten wir speichern</h2>
   <ul>
-    <li><b>Konto:</b> Benutzername und ein Passwort-Hash (argon2id). Eine E-Mail-Adresse wird nicht erhoben.
-      Bei Anmeldung über Google speichern wir ausschließlich die von Google vergebene Nutzer-ID („sub“) und den
-      angezeigten Namen — keine E-Mail-Adresse, kein Profilbild.</li>
+    <li><b>Konto:</b> Die Anmeldung erfolgt ausschließlich über Google. Wir speichern die von Google vergebene
+      Nutzer-ID („sub“), Ihre E-Mail-Adresse und einen Anzeigenamen. Die E-Mail-Adresse dient allein dazu, Ihr
+      Konto wiederzuerkennen; sie wird anderen Nutzerinnen und Nutzern nicht angezeigt, nicht für Werbung oder
+      Newsletter verwendet und nicht weitergegeben. Den Anzeigenamen können Sie jederzeit ändern. Ein Profilbild
+      wird nicht gespeichert. Wir fragen bei Google nur die Bereiche <code>openid</code>, <code>email</code> und
+      <code>profile</code> ab — kein Zugriff auf Kontakte, Kalender, Dateien oder Ihr Postfach.</li>
+    <li><b>Frühere Konten:</b> Bis zum 18.09.2026 konnten Konten mit Benutzername und Passwort angelegt werden.
+      Diese Anmeldung ist abgeschaltet; die betroffenen Konten können sich nicht mehr anmelden. Ihre Buchungs-
+      journale bleiben aus Nachvollziehbarkeitsgründen erhalten. Auf Wunsch löschen wir sie (siehe unten).</li>
     <li><b>Punktekonto:</b> ein fortlaufendes, nicht änderbares Buchungsjournal mit Zeitpunkt, Art der Buchung und
       Punktezahl.</li>
     <li><b>Anfragen:</b> pro Anfrage ausschließlich Zähler — Anzahl Eingabe- und Ausgabe-Token, Status, Dauer,
@@ -76,7 +82,10 @@
       Diese Rechner können weltweit stehen.</li>
     <li><b>Hugging Face:</b> die Modellgewichte werden beim Beitragen direkt aus dem Content-Delivery-Netz von
       Hugging Face in Ihren Browser geladen. Dabei wird Ihre IP-Adresse an diesen Anbieter übermittelt.</li>
-    <li><b>Google:</b> nur wenn Sie die Anmeldung mit Google aktiv wählen.</li>
+    <li><b>Google:</b> Google Ireland Ltd. ist unser Anmeldedienst („Sign in with Google“). Beim Anmelden werden
+      Ihre IP-Adresse und die Anmeldeanfrage an Google übermittelt; wir erhalten im Gegenzug Nutzer-ID, E-Mail-
+      Adresse und Namen. Ohne diese Anmeldung ist die Nutzung von Chat und GPU-Beitrag nicht möglich; die
+      Startseite, die Statistikanzeige und die Erklärseiten bleiben ohne Anmeldung zugänglich.</li>
     <li><b>Hosting:</b> Server in Deutschland (Hetzner Online GmbH, Auftragsverarbeitung).</li>
   </ul>
 

@@ -1,13 +1,12 @@
-import { $, api, mountChrome } from './common.js';
+// One way in: Google. The page's only other job is to say what the app is, because a
+// visitor who has not seen the landing page should not have to sign in to find out.
+import { $, api, fmt, mountChrome } from './common.js';
 
 const params = new URLSearchParams(location.search);
 const next = params.get('next') || '/chat.html';
-// Automated end-to-end runs pass the server's test key so throwaway accounts do not
-// trip the per-connection signup limit. Normal visitors never have this value.
-const testKey = params.get('testKey') || '';
 
 const ERRORS = {
-  google_disabled: 'Google sign-in is not configured on this server yet. Use a username and password.',
+  google_disabled: 'Google sign-in is not configured on this server yet.',
   oauth_state: 'That sign-in attempt expired. Please try again.',
   oauth_cancelled: 'Google sign-in was cancelled.',
   oauth_failed: 'Google sign-in failed. Please try again.',
@@ -18,30 +17,18 @@ const me = await mountChrome();
 if (me.signedIn) location.href = next;
 
 const cfg = await api('/api/config');
-$('#welcome').textContent = cfg.coins.welcome;
-if (cfg.googleEnabled) $('#google-box').hidden = false;
-if (params.get('error')) $('#li-error').textContent = ERRORS[params.get('error')] || 'Sign-in failed.';
+$('#welcome').textContent = `${fmt.int(cfg.coins.welcome)} AI Coins`;
+if (params.get('error')) $('#error').textContent = ERRORS[params.get('error')] || 'Sign-in failed.';
+if (!cfg.googleEnabled) {
+  $('#google-btn').classList.add('disabled');
+  $('#error').textContent = ERRORS.google_disabled;
+}
+// Carry the visitor back to where they were headed once Google sends them home.
+$('#google-btn').href = `/api/auth/google/start?next=${encodeURIComponent(next)}`;
 
-const submit = (formId, path, errorId) => {
-  $(formId).addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const form = event.target;
-    const button = form.querySelector('button');
-    button.disabled = true;
-    $(errorId).textContent = '';
-    try {
-      await api(path, {
-        method: 'POST',
-        headers: testKey ? { 'x-test-mode-key': testKey } : {},
-        body: { username: form.username.value.trim(), password: form.password.value },
-      });
-      location.href = next;
-    } catch (err) {
-      $(errorId).textContent = err.message;
-      button.disabled = false;
-    }
-  });
-};
-
-submit('#signup-form', '/api/auth/signup', '#su-error');
-submit('#login-form', '/api/auth/login', '#li-error');
+try {
+  const s = await api('/api/stats/public');
+  $('#s-providers').textContent = fmt.int(s.providersOnline);
+  $('#s-capacity').textContent = Number(s.capacityTps || 0).toFixed(1);
+  $('#s-tokens').textContent = fmt.int(s.tokensToday);
+} catch { /* the strip is decoration; a failure must not block signing in */ }

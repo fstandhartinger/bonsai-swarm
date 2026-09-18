@@ -82,6 +82,23 @@ export const config = {
     get enabled() { return Boolean(this.clientId && this.clientSecret); },
   },
 
+  /**
+   * Google is the only way in once a client is configured.
+   *
+   * A free network with no billing has nothing to verify a person by, and the
+   * username-and-password sign-up that stood here instead turned out to be the wrong
+   * trade: it asked a visitor to invent a credential before they had seen anything, and
+   * it let one machine mint accounts - and welcome coins - in a loop. One Google account
+   * is one account here.
+   *
+   * Our own rented GPUs and the operator tooling are unaffected: they authenticate with
+   * server-side API tokens, which never go through a login form.
+   *
+   * REQUIRE_GOOGLE_SIGNIN=0 reopens the password routes. That is the escape hatch for a
+   * deployment without an OAuth client - and what the tests use to cover both worlds.
+   */
+  get requireGoogleSignin() { return bool('REQUIRE_GOOGLE_SIGNIN', true) && this.google.enabled; },
+
   // Test mode: lets automated tests attach a deterministic fake provider and admit a
   // slow GPU. Never available to normal users - it needs this shared secret.
   testModeKey: process.env.TEST_MODE_KEY || '',

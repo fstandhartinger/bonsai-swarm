@@ -64,9 +64,12 @@ export function client(baseUrl) {
   const origin = baseUrl;
   return {
     get cookie() { return cookie; },
-    async req(path, { method = 'GET', body, headers = {}, raw = false, noOrigin = false } = {}) {
+    async req(path, { method = 'GET', body, headers = {}, raw = false, noOrigin = false, redirect = 'follow' } = {}) {
       const res = await fetch(`${baseUrl}${path}`, {
         method,
+        // `redirect: 'manual'` is how a test inspects where a sign-in flow sends people
+        // instead of being taken there.
+        redirect,
         headers: {
           ...(body ? { 'content-type': 'application/json' } : {}),
           ...(cookie ? { cookie } : {}),

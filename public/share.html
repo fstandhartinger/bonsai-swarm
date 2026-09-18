@@ -20,35 +20,47 @@
     </div>
   </div>
 
-  <div class="card raised" style="margin-top:22px">
-    <div class="row">
-      <button id="start" class="primary">Start sharing</button>
-      <button id="pause" hidden>Pause</button>
-      <button id="stop" class="ghost">Stop</button>
+  <!-- Runs by itself on load, costs nothing, and downloads nothing: the honest answer
+       to "will this work on my machine?" before 5.9 GB starts moving. -->
+  <div class="card raised" id="preflight-card" style="margin-top:22px">
+    <div class="spread">
+      <h3 style="margin:0">Can this machine do it?</h3>
+      <span class="small muted" id="preflight-note">checking…</span>
     </div>
+    <ul class="checks" id="checks"></ul>
+
+    <div class="row" style="margin-top:16px">
+      <button id="start" class="primary" disabled>Checking your browser…</button>
+      <button id="pause" hidden>Pause</button>
+      <button id="stop" class="ghost" hidden>Stop</button>
+      <label id="force-wrap" hidden class="small muted" style="display:flex;gap:7px;align-items:center;cursor:pointer;margin:0">
+        <input type="checkbox" id="force" style="width:auto"> try anyway
+      </label>
+    </div>
+    <p class="small muted" style="margin:10px 0 0" id="start-hint"></p>
 
     <div id="progress" hidden style="margin-top:18px">
       <div class="small muted label">preparing…</div>
       <div class="bar" style="margin-top:7px"><i style="width:0"></i></div>
     </div>
+  </div>
 
-    <div class="notice danger" style="margin-top:18px">
-      <b>Two things to know first.</b>
-      <ul>
-        <li>The model is downloaded once: about <b id="download-size">5.9 GB</b>, kept in this browser's storage,
-          and it needs ~8–10 GB of GPU memory.</li>
-        <li><b>Other people's prompts run on your machine.</b> They are never stored, but they pass through your browser.</li>
+  <div class="notice danger" style="margin-top:16px">
+    <b>Two things to know before you start.</b>
+    <ul>
+      <li>The model is downloaded once: about <b id="download-size">5.9 GB</b>, kept in this browser's storage,
+        and it needs ~8–10 GB of graphics memory while it runs.</li>
+      <li><b>Other people's prompts run on your machine.</b> They are never stored, but they pass through your browser.</li>
+    </ul>
+    <details style="margin-top:10px">
+      <summary class="small muted" style="cursor:pointer">What else?</summary>
+      <ul style="margin-top:8px">
+        <li>Up to ~10 GB of extra system RAM is used while the model is loaded.</li>
+        <li>Your browser is speed-tested after loading. Below <b id="min-tps">10</b> tokens/s you can still chat, but
+          the swarm will not send you anyone else's work.</li>
+        <li>Nothing else leaves this page: no files, no screen, no other tabs.</li>
       </ul>
-      <details style="margin-top:10px">
-        <summary class="small muted" style="cursor:pointer">What else?</summary>
-        <ul style="margin-top:8px">
-          <li>Up to ~10 GB of extra system RAM is used while the model is loaded.</li>
-          <li>Your browser is speed-tested first. Below <b id="min-tps">10</b> tokens/s you can still chat, but the
-            swarm will not send you anyone else's work.</li>
-          <li>Nothing else leaves this page: no files, no screen, no other tabs.</li>
-        </ul>
-      </details>
-    </div>
+    </details>
   </div>
 
   <div class="grid cols-2" style="margin-top:18px;align-items:start">

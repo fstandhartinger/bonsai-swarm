@@ -2,7 +2,7 @@
 
 **A volunteer GPU network that runs a 27B language model in browser tabs.**
 Open a tab, share your graphics card, earn **AI Coins**. Spend them when you need an
-answer. No money, no crypto, no accounts tied to an email address. MIT licensed.
+answer. No money, no crypto, no billing. Sign in with Google; MIT licensed.
 
 Live: **https://bonsai-swarm.app.mintapis.com**
 

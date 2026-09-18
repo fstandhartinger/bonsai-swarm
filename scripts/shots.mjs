@@ -19,12 +19,23 @@ const uniq = (p) => `${p}${Date.now().toString(36)}${Math.random().toString(36).
 await mkdir(OUT, { recursive: true });
 const browser = await chromium.launch();
 
+/**
+ * Sign-in is Google-only, and a screenshot run cannot walk Google's consent screen.
+ * It goes through the operator-only test key instead, which is the single documented
+ * way past the Google requirement (`passwordSignInClosed` in server/routes/auth-routes.js).
+ * A normal visitor never has this key and therefore only ever sees the Google button.
+ */
 async function signUp(page, username) {
-  await page.goto(`${BASE}/login.html${TEST_KEY ? `?testKey=${encodeURIComponent(TEST_KEY)}` : ''}`);
-  await page.fill('#su-user', username);
-  await page.fill('#su-pass', PASSWORD);
-  await page.click('#signup-form button[type=submit]');
-  await page.waitForURL(/chat\.html/, { timeout: 30000 });
+  await page.goto(BASE);
+  const result = await page.evaluate(async ({ username, password, key }) => {
+    const res = await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-test-mode-key': key },
+      body: JSON.stringify({ username, password }),
+    });
+    return res.ok ? true : `${res.status} ${await res.text()}`;
+  }, { username, password: PASSWORD, key: TEST_KEY });
+  if (result !== true) throw new Error(`screenshot sign-in failed: ${result}`);
 }
 
 const shot = async (page, name) => {
@@ -57,8 +68,16 @@ for (const theme of ['dark', 'light']) {
 
     await page.goto(BASE);
     await shot(page, `01-landing-${tag}`);
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    // The signed-out login screen is the real first impression now, so it gets shot
+    // before this context is given an account.
+    await page.goto(`${BASE}/login.html`);
+    await shot(page, `08-login-${tag}`);
 
     await signUp(page, uniq('shot'));
+    await page.goto(`${BASE}/chat.html`);
+    await page.waitForSelector('#input');
     await page.fill('#input', 'Write a haiku about idle graphics cards.');
     await page.click('#send');
     await page.waitForSelector('.msg.assistant .content', { timeout: 30000 });

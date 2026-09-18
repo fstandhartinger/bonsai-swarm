@@ -65,6 +65,7 @@ async function boot() {
   $('#per-token').textContent = cfg.coins.servePerToken;
 
   ui.startBtn.onclick = () => start(cfg);
+  await preflight(cfg);
   ui.pauseBtn.onclick = togglePause;
   ui.stopBtn.onclick = () => stop('you stopped sharing');
 
@@ -72,6 +73,89 @@ async function boot() {
   setInterval(refreshStats, 15000);
   refreshStats();
   if (AUTOSTART) start(cfg);
+}
+
+/**
+ * The honest requirement check, before a single byte of the model is downloaded.
+ *
+ * A browser cannot be asked how much video memory a card has - no API exposes it - so
+ * this checks what it *can* check and says plainly which part it cannot: WebGPU exists
+ * and is not a software fallback, the browser will give us the ~6 GB of storage the
+ * weights need, and this is not a phone. The real verdict is still the speed benchmark
+ * after loading, and the card says so rather than pretending otherwise.
+ */
+async function preflight(cfg) {
+  const checks = [];
+  const need = cfg.model.downloadBytes;
+
+  if (!('gpu' in navigator)) {
+    checks.push({ ok: false, blocking: true, title: 'No WebGPU in this browser',
+      detail: 'Chrome or Edge 121+ on a desktop works; Safari needs 18+. On Linux, Chrome may need --enable-unsafe-webgpu --enable-features=Vulkan.' });
+  } else {
+    let adapter = null;
+    try { adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }); } catch { /* reported below */ }
+    if (!adapter) {
+      checks.push({ ok: false, blocking: true, title: 'WebGPU exists, but no graphics adapter was offered',
+        detail: 'Usually a blocklisted driver or a virtual machine without GPU passthrough.' });
+    } else {
+      const info = (await adapter.requestAdapterInfo?.().catch(() => null)) || adapter.info || {};
+      const name = [info.vendor, info.architecture].filter(Boolean).join(' ') || 'an unnamed adapter';
+      if (adapter.isFallbackAdapter) {
+        checks.push({ ok: false, blocking: true, title: 'Only a software renderer is available',
+          detail: 'The browser offered a CPU fallback adapter. That is far too slow to be admitted.' });
+      } else {
+        checks.push({ ok: true, title: `WebGPU is available on ${name}`,
+          detail: `Buffer limit ${fmt.bytes(adapter.limits.maxBufferSize)} · storage binding ${fmt.bytes(adapter.limits.maxStorageBufferBindingSize)}.` });
+      }
+    }
+  }
+
+  const estimate = await navigator.storage?.estimate?.().catch(() => null);
+  if (estimate?.quota) {
+    const free = estimate.quota - (estimate.usage || 0);
+    checks.push({
+      ok: free > need * 1.1,
+      blocking: free <= need * 1.1,
+      title: free > need * 1.1
+        ? `Room for the model: ${fmt.bytes(free)} of browser storage free`
+        : `Not enough browser storage: ${fmt.bytes(free)} free, ${fmt.bytes(need)} needed`,
+      detail: 'The weights are cached in this browser, so the download happens only once.',
+    });
+  }
+
+  const mobile = navigator.userAgentData?.mobile ?? /android|iphone|ipad|mobile/i.test(navigator.userAgent);
+  if (mobile) {
+    checks.push({ ok: false, blocking: true, title: 'This looks like a phone or tablet',
+      detail: 'No mobile GPU has the memory for a 27B model. You can still chat here.' });
+  }
+
+  checks.push({ ok: null, title: 'Graphics memory cannot be measured from a browser',
+    detail: `No web API reports it. We measure the real thing instead: after the model loads, your browser is `
+      + `benchmarked and needs ${cfg.minDecodeTps} tokens/s to be admitted. An RTX 3090 managed 42, an 8 GB laptop 2.5.` });
+
+  const icon = (ok) => (ok === null ? '•' : ok ? '✓' : '✕');
+  $('#checks').replaceChildren(...checks.map((c) => el('li', { className: `check ${c.ok === null ? 'note' : c.ok ? 'ok' : 'bad'}` },
+    el('span', { className: 'mark', textContent: icon(c.ok) }),
+    el('div', {}, el('b', { textContent: c.title }), el('div', { className: 'small muted', textContent: c.detail })))));
+
+  const found = checks.filter((c) => c.blocking);
+  // The mock provider and the admin override exist to exercise this page where there is
+  // no GPU at all (CI, the screenshot run, Sandy); they must not be stopped at the door.
+  const overridden = MOCK || ADMIN_OVERRIDE;
+  const blockers = overridden ? [] : found;
+  $('#preflight-note').textContent = found.length
+    ? `${found.length} problem${found.length === 1 ? '' : 's'} found${overridden ? ' — overridden' : ''}`
+    : 'looks good';
+  ui.startBtn.disabled = blockers.length > 0;
+  ui.startBtn.textContent = `Start sharing — downloads ${fmt.bytes(need)}`;
+  $('#start-hint').textContent = found.length && !overridden
+    ? 'Sharing is switched off because of the problems above. Chatting works regardless.'
+    : `You earn ${cfg.coins.providePerMinute} AI Coins a minute while you are online, plus `
+      + `${cfg.coins.servePerToken} for every token you generate for somebody else.`;
+  if (blockers.length) {
+    $('#force-wrap').hidden = false;
+    $('#force').onchange = (e) => { ui.startBtn.disabled = !e.target.checked; };
+  }
 }
 
 function log(message, kind = '') {
@@ -86,6 +170,15 @@ function setStatus(text, dot = '') {
 }
 
 async function start(cfg) {
+  // The checklist answered "can this machine do it?"; once it is doing it, the answer is
+  // on screen below and the list is only in the way.
+  $('#checks').hidden = true;
+  $('#force-wrap').hidden = true;
+  $('#start-hint').hidden = true;
+  $('#preflight-note').textContent = 'starting';
+  $('#preflight-card').querySelector('h3').textContent = 'Sharing';
+  ui.pauseBtn.hidden = false;
+  ui.stopBtn.hidden = false;
   ui.startBtn.disabled = true;
   state.sharing = true;
   state.startedAt = Date.now();
@@ -266,6 +359,12 @@ function stop(reason) {
   setStatus(`Not sharing (${reason}).`);
   ui.startBtn.disabled = false;
   ui.pauseBtn.hidden = true;
+  ui.stopBtn.hidden = true;
+  // Back to the question the page opened with, so a second attempt starts informed.
+  $('#checks').hidden = false;
+  $('#start-hint').hidden = false;
+  $('#preflight-card').querySelector('h3').textContent = 'Can this machine do it?';
+  $('#preflight-note').textContent = 'not sharing';
   log(`Stopped: ${reason}.`);
 }
 

@@ -26,7 +26,7 @@ async function boot() {
 
   $('#send').onclick = onSend;
   $('#stop').onclick = () => state.controller?.abort();
-  $('#new-chat').onclick = () => { newConversation(); render(); $('#input').focus(); };
+  $('#new-chat').onclick = () => { newConversation(); render(); $('#input').focus({ preventScroll: true }); };
   $('#input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
   });
@@ -37,7 +37,7 @@ async function boot() {
   setInterval(refreshNetwork, 12000);
   refreshNetwork();
   render();
-  $('#input').focus();
+  $('#input').focus({ preventScroll: true });
 }
 
 function autoGrow() {

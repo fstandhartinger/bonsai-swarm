@@ -115,6 +115,20 @@ test('house GPUs are counted apart from community GPUs and never rank', async ()
   assert.equal(pub.tokensToday, 390);
 });
 
+test('an hour with nobody online reads zero, not one', async () => {
+  const c = client(srv.url);
+  const user = await signUp(c, 'a-provider');
+  await pool.query(`
+    INSERT INTO provider_sessions (id, user_id, admitted, connected_at, disconnected_at)
+    VALUES ('s1', $1, true, now() - interval '30 minutes', NULL)`, [user.id]);
+  const report = await operatorReport({ days: 2 });
+  const hours = report.providersOnline;
+  assert.equal(hours.at(-1).community, 1, 'the current hour has the live session');
+  // An outer join leaves NULL rows for empty hours; they must not be counted as GPUs.
+  assert.ok(hours.slice(0, -2).every((h) => h.community === 0 && h.house === 0),
+    'hours before the session must be empty');
+});
+
 test('the daily series has one entry per day, gaps filled with zero', async () => {
   const rows = [{ day: new Date().toISOString().slice(0, 10), jobs: 5 }];
   const series = densify(rows, 7, ['jobs']);

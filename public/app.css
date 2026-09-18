@@ -522,3 +522,52 @@ details.think .txt { font-size: 13px; color: var(--ink-3); white-space: pre-wrap
 .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; color: var(--ink-2); font-size: 12.5px; }
 .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
 .chart-card table { margin-top: 14px; }
+
+/* ------------------------------------------------------- the two paths
+   The whole decision on the landing page: chat, or share a GPU. Two cards the
+   size of a decision, not two buttons in a row of three. */
+.paths { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 30px; }
+.path {
+  display: flex; flex-direction: column; gap: 8px; text-decoration: none; color: inherit;
+  padding: 24px 24px 20px; border-radius: var(--r-lg); border: 1px solid var(--line);
+  background: var(--panel); box-shadow: var(--card-shadow);
+  transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+.path:hover, .path:focus-visible { transform: translateY(-2px); border-color: var(--line-strong); box-shadow: var(--glow-jade); }
+.path.gpu:hover, .path.gpu:focus-visible { box-shadow: var(--glow-gold); }
+.path .pill { align-self: flex-start; }
+.path h2 { margin: 6px 0 0; font-size: 1.42rem; letter-spacing: -.02em; }
+.path p { margin: 0; color: var(--ink-2); font-size: 14.5px; }
+.path .go { margin-top: auto; padding-top: 12px; font-weight: 600; color: var(--jade); }
+.path.gpu .go { color: var(--gold); }
+@media (prefers-reduced-motion: reduce) { .path { transition: none; } .path:hover { transform: none; } }
+@media (max-width: 720px) { .paths { grid-template-columns: 1fr; } }
+
+/* The share page's pre-flight checklist. */
+.checks { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 10px; }
+.check { display: flex; gap: 11px; align-items: flex-start; }
+.check .mark {
+  flex: 0 0 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; margin-top: 1px;
+}
+.check.ok   .mark { background: var(--jade-dim); color: var(--jade); }
+.check.bad  .mark { background: rgba(251, 113, 133, .16); color: var(--rose); }
+.check.note .mark { background: var(--panel-2); color: var(--ink-3); }
+.check b { font-weight: 600; font-size: 14.5px; }
+
+/* ------------------------------------------------------------ the sign-in card
+   One decision on the page, so it gets the whole card and the only filled button. */
+.signin { text-align: center; padding: 34px 28px 28px; }
+.signin h1 { margin: 14px 0 10px; font-size: 1.9rem; letter-spacing: -.02em; }
+.signin .lead { margin-inline: auto; max-width: 46ch; font-size: 15.5px; }
+.signin .small { margin-inline: auto; max-width: 52ch; }
+
+.btn.google {
+  display: inline-flex; align-items: center; justify-content: center; gap: 11px;
+  margin-top: 26px; padding: 13px 26px; font-size: 15.5px; font-weight: 600;
+  border-radius: var(--r); border: 1px solid var(--line-strong);
+  background: var(--panel-2); color: var(--ink); text-decoration: none;
+}
+.btn.google:hover, .btn.google:focus-visible { border-color: var(--jade); box-shadow: var(--glow-jade); }
+.btn.google svg { flex: 0 0 20px; }
+.btn.google.disabled { opacity: .5; pointer-events: none; }

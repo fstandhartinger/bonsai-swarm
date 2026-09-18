@@ -93,13 +93,13 @@ export async function clearAttempts(key) {
 
 // ---------------------------------------------------------------- accounts
 
-export async function createUser({ username = null, password = null, googleSub = null, displayName }) {
+export async function createUser({ username = null, password = null, googleSub = null, email = null, displayName }) {
   const passwordHash = password ? await hashPassword(password) : null;
   return withTransaction(async (client) => {
     const { rows } = await client.query(
-      `INSERT INTO users (username, username_lower, password_hash, google_sub, display_name)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [username, username ? username.toLowerCase() : null, passwordHash, googleSub, displayName],
+      `INSERT INTO users (username, username_lower, password_hash, google_sub, email, display_name)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [username, username ? username.toLowerCase() : null, passwordHash, googleSub, email, displayName],
     );
     const user = rows[0];
     if (config.coins.welcome > 0) {
@@ -257,7 +257,7 @@ export function googleAuthUrl(state, codeVerifier) {
     client_id: config.google.clientId,
     redirect_uri: `${config.publicUrl}/api/auth/google/callback`,
     response_type: 'code',
-    scope: 'openid profile',
+    scope: 'openid email profile',
     state,
     code_challenge: challenge,
     code_challenge_method: 'S256',

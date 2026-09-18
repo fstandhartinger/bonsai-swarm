@@ -126,6 +126,8 @@ export function apiRouter(coordinator) {
       defaultMaxNewTokens: config.jobs.defaultMaxNewTokens,
       maxPromptChars: config.jobs.maxPromptChars,
       googleEnabled: config.google.enabled,
+      // The login page needs to know whether to show a password form at all.
+      requireGoogleSignin: config.requireGoogleSignin,
       // Labels and limits only - never an endpoint and never a key.
       fallback: publicFallbackInfo(),
     });
@@ -135,6 +137,21 @@ export function apiRouter(coordinator) {
     if (!req.user) return res.json({ signedIn: false });
     const fresh = await auth.findUserById(req.user.id);
     res.json({ signedIn: true, user: publicUser(fresh), providers: coordinator.providerViewFor(fresh.id) });
+  });
+
+  /**
+   * The display name is the only thing about an account a person can change, and the
+   * sign-in screen promises they can - the address Google gave us is not editable and
+   * is not shown to anybody else.
+   */
+  router.patch('/me', auth.requireAuth, async (req, res) => {
+    const name = String(req.body?.displayName ?? '').trim().replace(/\s+/g, ' ');
+    if (name.length < 2 || name.length > 40) {
+      return res.status(400).json({ error: 'bad_name', message: 'Pick a name between 2 and 40 characters.' });
+    }
+    const { rows } = await pool.query(
+      'UPDATE users SET display_name = $2 WHERE id = $1 RETURNING *', [req.user.id, name]);
+    res.json({ ok: true, user: publicUser(rows[0]) });
   });
 
   router.get('/ledger', auth.requireAuth, async (req, res) => {

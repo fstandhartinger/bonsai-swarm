@@ -123,7 +123,9 @@ export async function operatorReport({ days = 30 } = {}) {
              count(*) FILTER (WHERE j.status = 'done')::int AS done,
              count(*) FILTER (WHERE j.status <> 'done')::int AS failed,
              COALESCE(avg(j.wait_ms) FILTER (WHERE j.wait_ms IS NOT NULL), 0)::int AS avg_wait_ms,
-             COALESCE(avg(j.decode_tps) FILTER (WHERE j.decode_tps IS NOT NULL), 0)::numeric(10,1) AS avg_tps
+             -- only GPU answers: a hosted fallback model's speed is not the swarm's speed
+             COALESCE(avg(j.decode_tps) FILTER (
+               WHERE j.decode_tps IS NOT NULL AND j.served_by = 'community'), 0)::numeric(10,1) AS avg_tps
         FROM jobs j WHERE j.created_at > ${window} AND NOT j.is_mock GROUP BY 1 ORDER BY 1`),
     // Who actually produced the tokens: a volunteer, one of our own rented GPUs, or the
     // free hosted fallback. The distinction is the honest part of the whole project.
@@ -139,15 +141,17 @@ export async function operatorReport({ days = 30 } = {}) {
     // Providers online over time, from the session rows - a session counts for every hour
     // it overlapped, so the shape of the curve is real and not a sampling artefact.
     pool.query(`
-      SELECT to_char(h.hour, 'YYYY-MM-DD"T"HH24:00') AS hour,
-             count(*) FILTER (WHERE COALESCE(u.is_house, false))::int AS house,
-             count(*) FILTER (WHERE NOT COALESCE(u.is_house, false))::int AS community
-        FROM generate_series(date_trunc('hour', now()) - interval '${Math.min(n, 14)} days',
-                             date_trunc('hour', now()), interval '1 hour') AS h(hour)
+      SELECT to_char(h.hour AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:00') AS hour,
+             count(s.id) FILTER (WHERE COALESCE(u.is_house, false))::int AS house,
+             count(s.id) FILTER (WHERE NOT COALESCE(u.is_house, false))::int AS community
+        FROM generate_series(date_trunc('hour', now() AT TIME ZONE 'UTC') - interval '${Math.min(n, 14)} days',
+                             date_trunc('hour', now() AT TIME ZONE 'UTC'), interval '1 hour') AS h(hour)
+        -- count(s.id), not count(*): an hour with no session at all must read zero, and
+        -- an outer-joined NULL row is not a community GPU.
         LEFT JOIN provider_sessions s
                ON s.admitted AND NOT s.is_mock
-              AND s.connected_at < h.hour + interval '1 hour'
-              AND (s.disconnected_at IS NULL OR s.disconnected_at >= h.hour)
+              AND (s.connected_at AT TIME ZONE 'UTC') < h.hour + interval '1 hour'
+              AND (s.disconnected_at IS NULL OR (s.disconnected_at AT TIME ZONE 'UTC') >= h.hour)
         LEFT JOIN users u ON u.id = s.user_id
        GROUP BY 1 ORDER BY 1`),
     pool.query(`
