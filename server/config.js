@@ -29,7 +29,13 @@ export function normalizeUpstream(entry, index = 0) {
     label: String(entry.label ?? '').trim() || model.split('/').pop(),
     baseUrl,
     model,
-    apiKey: String(entry.apiKey ?? entry.api_key ?? '').trim(),
+    // `apiKeyEnv` names another environment variable to read the key from, so the
+    // structural configuration can be edited without a key ever being written into it.
+    apiKey: String(
+      entry.apiKeyEnv || entry.api_key_env
+        ? (process.env[String(entry.apiKeyEnv ?? entry.api_key_env)] ?? '')
+        : (entry.apiKey ?? entry.api_key ?? ''),
+    ).trim(),
     // Most free models worth having are reasoning models, and a reasoning model on a
     // small token budget spends all of it thinking and returns an empty answer. Where
     // the server understands the hint, ask for thinking to be switched off.
