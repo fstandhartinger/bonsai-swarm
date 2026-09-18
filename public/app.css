@@ -1,3 +1,5 @@
+@import url('https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.1.1/index.min.css');
+@import url('https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.1.1/400.min.css');
 /* ============================================================================
    Bonsai Swarm — visual identity
    Deep forest at night: near-black greens, jade light, a warm coin gold.
@@ -33,7 +35,7 @@
   --glow-gold:   0 0 0 1px rgba(255, 199, 81, .35), 0 10px 34px -10px rgba(255, 199, 81, .5);
 
   --r-sm: 8px; --r: 14px; --r-lg: 20px; --r-xl: 28px;
-  --ui: 'InterVariable', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --ui: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
   --maxw: 1120px;
 }
@@ -496,6 +498,8 @@ details.think .txt { font-size: 13px; color: var(--ink-3); white-space: pre-wrap
   .composer textarea { flex: 1 1 100%; }
   .composer .box button { flex: 1; justify-content: center; }
   .thread { scroll-margin-top: calc(var(--header-h) + 10px); }
+  #toasts { top: auto; bottom: 16px; }
+  .card > .row > button, .card > .row > .btn { flex: 1 1 100%; justify-content: center; }
   table.compact-sm th:nth-child(n+5), table.compact-sm td:nth-child(n+5) { display: none; }
 }
 @media (max-width: 420px) {
