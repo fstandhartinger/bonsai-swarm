@@ -152,7 +152,9 @@ async function serve() {
     console.log('  export OPENAI_API_KEY=local');
     console.log(`  export ANTHROPIC_BASE_URL=http://${host}:${port}`);
     console.log('  export ANTHROPIC_API_KEY=local');
-    console.log('\nThis listens on localhost only. Ctrl-C to stop.');
+    const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+    if (loopback) console.log('\nThis listens on localhost only. Ctrl-C to stop.');
+    else console.log(`\nWARNING: bound to ${host}. Anyone who can reach this port can spend your AI Coins.`);
   });
   process.on('SIGINT', () => { server.close(); process.exit(0); });
 }
@@ -170,7 +172,7 @@ async function litellm() {
   writeFileSync(configPath, litellmConfig(gatewayPort), 'utf8');
   console.log(`LiteLLM config written to ${configPath}`);
 
-  const child = spawn('litellm', ['--config', configPath, '--port', String(litellmPort)], {
+  const child = spawn('litellm', ['--config', configPath, '--port', String(litellmPort), '--host', '127.0.0.1'], {
     stdio: 'inherit',
     env: { ...process.env, BONSAI_SWARM_LOCAL_KEY: 'local' },
   });
