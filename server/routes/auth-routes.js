@@ -1,0 +1,143 @@
+import crypto from 'node:crypto';
+import express from 'express';
+import { config } from '../config.js';
+import { pool } from '../db.js';
+import * as auth from '../auth.js';
+import { clientIp, randomToken, signPayload, verifyPayload } from '../util.js';
+
+const OAUTH_STATE_COOKIE = 'bsw_oauth';
+
+export function authRouter() {
+  const router = express.Router();
+
+  router.post('/signup', async (req, res) => {
+    const { username, password } = req.body || {};
+    const ip = clientIp(req);
+    const testMode = auth.isTestMode(req);
+    if (!testMode && await auth.tooManyAttempts(`signup:${ip}`, config.limits.signupPerDay, 24 * 60)) {
+      return res.status(429).json({ error: 'rate_limited', message: 'Too many new accounts from this connection today.' });
+    }
+    const usernameError = auth.validateUsername(username);
+    if (usernameError) return res.status(400).json({ error: 'bad_username', message: usernameError });
+    const passwordError = auth.validatePassword(password);
+    if (passwordError) return res.status(400).json({ error: 'bad_password', message: passwordError });
+
+    if (!testMode) await auth.recordAttempt(`signup:${ip}`);
+    if (await auth.findUserByUsername(username)) {
+      return res.status(409).json({ error: 'taken', message: 'That username is already taken.' });
+    }
+    try {
+      const user = await auth.createUser({ username, password, displayName: username });
+      auth.issueSession(res, user);
+      res.json({ ok: true, user: publicUser(user) });
+    } catch (err) {
+      if (err.code === '23505') return res.status(409).json({ error: 'taken', message: 'That username is already taken.' });
+      throw err;
+    }
+  });
+
+  router.post('/login', async (req, res) => {
+    const { username, password } = req.body || {};
+    const ip = clientIp(req);
+    const ipKey = `login-ip:${ip}`;
+    const userKey = `login-user:${String(username || '').toLowerCase().slice(0, 64)}`;
+    if (await auth.tooManyAttempts(ipKey, config.limits.loginPerHour, 60)
+      || await auth.tooManyAttempts(userKey, 10, 60)) {
+      return res.status(429).json({ error: 'rate_limited', message: 'Too many attempts. Please wait an hour.' });
+    }
+    await auth.recordAttempt(ipKey);
+    await auth.recordAttempt(userKey);
+
+    const user = typeof username === 'string' ? await auth.findUserByUsername(username) : null;
+    const ok = user && await auth.verifyPassword(user.password_hash, String(password ?? ''));
+    if (!ok || user.disabled) {
+      // Same answer whether the account exists or the password was wrong.
+      return res.status(401).json({ error: 'bad_credentials', message: 'Wrong username or password.' });
+    }
+    await auth.clearAttempts(userKey);
+    await pool.query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
+    auth.issueSession(res, user);
+    res.json({ ok: true, user: publicUser(user) });
+  });
+
+  router.post('/logout', (req, res) => {
+    auth.clearSession(res);
+    res.json({ ok: true });
+  });
+
+  router.post('/logout-everywhere', auth.requireAuth, async (req, res) => {
+    await pool.query('UPDATE users SET session_version = session_version + 1 WHERE id = $1', [req.user.id]);
+    auth.clearSession(res);
+    res.json({ ok: true });
+  });
+
+  /**
+   * The local CLI opens the provider page with an API token in the URL fragment; the
+   * page trades it for a normal session cookie here so the browser tab behaves like a
+   * signed-in user. The fragment never reaches the server logs.
+   */
+  router.post('/token-session', async (req, res) => {
+    const token = String(req.body?.token || '');
+    const user = await auth.userFromApiToken(token);
+    if (!user) return res.status(401).json({ error: 'bad_token', message: 'That API token is not valid.' });
+    auth.issueSession(res, user);
+    res.json({ ok: true, user: publicUser(user) });
+  });
+
+  // ---------------------------------------------------------- google
+
+  router.get('/google/start', (req, res) => {
+    if (!config.google.enabled) {
+      return res.status(503).json({ error: 'google_disabled', message: 'Google sign-in is not configured on this server.' });
+    }
+    const state = randomToken(16);
+    const verifier = randomToken(32);
+    res.cookie(OAUTH_STATE_COOKIE, signPayload(config.sessionSecret, {
+      state, verifier, exp: Math.floor(Date.now() / 1000) + 600,
+    }), { httpOnly: true, sameSite: 'lax', secure: config.publicUrl.startsWith('https://'), maxAge: 600_000, path: '/' });
+    res.redirect(auth.googleAuthUrl(state, verifier));
+  });
+
+  router.get('/google/callback', async (req, res) => {
+    if (!config.google.enabled) return res.redirect('/login.html?error=google_disabled');
+    const stored = verifyPayload(config.sessionSecret, req.cookies?.[OAUTH_STATE_COOKIE]);
+    res.clearCookie(OAUTH_STATE_COOKIE, { path: '/' });
+    if (!stored || !req.query.state || !auth.timingSafeEqual(stored.state, String(req.query.state))) {
+      return res.redirect('/login.html?error=oauth_state');
+    }
+    if (!req.query.code) return res.redirect('/login.html?error=oauth_cancelled');
+    try {
+      const claims = await auth.googleExchange(String(req.query.code), stored.verifier);
+      let user = await auth.findUserByGoogleSub(claims.sub);
+      if (!user) {
+        user = await auth.createUser({
+          googleSub: claims.sub,
+          displayName: String(claims.name || claims.given_name || 'Google user').slice(0, 60),
+        });
+      }
+      if (user.disabled) return res.redirect('/login.html?error=disabled');
+      await pool.query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
+      auth.issueSession(res, user);
+      res.redirect('/chat.html');
+    } catch (err) {
+      console.error('[auth] google callback failed', err.message);
+      res.redirect('/login.html?error=oauth_failed');
+    }
+  });
+
+  return router;
+}
+
+export function publicUser(user) {
+  return {
+    id: Number(user.id),
+    username: user.username,
+    displayName: user.display_name,
+    isAdmin: Boolean(user.is_admin),
+    balance: Number(user.balance),
+    createdAt: user.created_at,
+    viaGoogle: Boolean(user.google_sub),
+  };
+}
+
+export { crypto };

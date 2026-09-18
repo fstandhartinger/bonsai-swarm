@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — Bonsai Swarm</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main class="wrap narrow" style="padding-top:48px">
+  <h1>Join the swarm</h1>
+  <p class="lead">No email address needed. Pick a username and a password — that is the whole account.
+    New accounts get a welcome budget of <span id="welcome">…</span> AI Coins.</p>
+
+  <div class="grid cols-2" style="margin-top:28px">
+    <div class="card">
+      <h3 style="margin-top:0">Create an account</h3>
+      <form id="signup-form" autocomplete="on">
+        <label for="su-user">Username</label>
+        <input id="su-user" name="username" type="text" autocomplete="username" required
+               minlength="3" maxlength="32" placeholder="nightowl">
+        <label for="su-pass">Password (at least 10 characters)</label>
+        <input id="su-pass" name="password" type="password" autocomplete="new-password" required minlength="10">
+        <div class="row" style="margin-top:16px"><button class="primary" type="submit">Create account</button></div>
+        <div class="error" id="su-error"></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">I already have one</h3>
+      <form id="login-form" autocomplete="on">
+        <label for="li-user">Username</label>
+        <input id="li-user" name="username" type="text" autocomplete="username" required>
+        <label for="li-pass">Password</label>
+        <input id="li-pass" name="password" type="password" autocomplete="current-password" required>
+        <div class="row" style="margin-top:16px"><button class="primary" type="submit">Sign in</button></div>
+        <div class="error" id="li-error"></div>
+      </form>
+      <div id="google-box" hidden style="margin-top:18px;border-top:1px solid var(--line);padding-top:16px">
+        <a class="btn" href="/api/auth/google/start" style="width:100%;text-align:center;display:block">Sign in with Google</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="notice info" style="margin-top:22px">
+    Anonymous accounts are deliberate: this network is free and has no billing, so there is nothing to verify.
+    Keep your password — there is no email address to reset it with.
+  </div>
+</main>
+<script type="module" src="/js/login.js"></script>
+</body>
+</html>

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How AI Coins work — Bonsai Swarm</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main class="wrap narrow" style="padding-top:36px">
+  <h1>How AI Coins work</h1>
+  <p class="lead">AI Coins are the only currency here. They cannot be bought, sold or converted into money —
+    they exist so that the network stays roughly balanced between people who give GPU time and people who use it.</p>
+
+  <h2>The rates</h2>
+  <table>
+    <thead><tr><th>What happens</th><th class="num">AI Coins</th></tr></thead>
+    <tbody>
+      <tr><td>New account, once</td><td class="num" id="p-welcome">–</td></tr>
+      <tr><td>Being online, admitted and ready — per minute</td><td class="num" id="p-minute">–</td></tr>
+      <tr><td>Generating an answer for someone else — per token</td><td class="num" id="p-serve">–</td></tr>
+      <tr><td>Your prompt — per token sent</td><td class="num" id="p-prompt">–</td></tr>
+      <tr><td>Your answer — per token received</td><td class="num" id="p-completion">–</td></tr>
+    </tbody>
+  </table>
+  <p class="small muted">The rates are configuration, not code, and can be retuned as the network grows.
+    This page always shows the values the server is actually using right now.</p>
+
+  <h2>The rules</h2>
+  <ul>
+    <li><b>A balance can never go negative.</b> If you cannot afford a whole answer, the answer is shortened to
+      what you can pay for; if you cannot afford even the prompt, the request is politely refused.</li>
+    <li><b>You never earn coins from your own prompts.</b> The coordinator never assigns your request to your own
+      browser, so you cannot run in a circle and mint coins.</li>
+    <li><b>Only real minutes count.</b> A browser earns per-minute coins only while it is connected, has passed the
+      speed test, is not paused, and is still answering the coordinator's heartbeat. Loading time earns nothing.</li>
+    <li><b>Tokens are counted by the server, not by the volunteer.</b> The coordinator counts the tokens it actually
+      relayed to the consumer, so a modified browser cannot claim work it did not do. An answer is also hard-capped
+      at the length the request asked for.</li>
+    <li><b>Failed work is free.</b> If a volunteer drops out before the first token, the request is re-queued to
+      somebody else and nobody is charged or paid for the attempt.</li>
+    <li><b>The ledger is append-only.</b> Every change is one row with a reason; your balance is the sum of those
+      rows, and you can read all of them on your <a href="/wallet.html">wallet page</a>.</li>
+  </ul>
+
+  <h2>Levels, streaks and badges</h2>
+  <p>Lifetime <i>earned</i> coins decide your level — Seedling, Sprout, Sapling, Bonsai, Grove, Canopy, Old Growth.
+    A streak counts the days in a row on which your GPU earned something, in your own timezone. Badges are unlocked
+    by the server from the same ledger rows, never by the browser, so nobody can award themselves one.
+    The leaderboard is opt-in and shows a display name, a level and earned coins — nothing else.</p>
+
+  <h2 id="api">Using the swarm from your own code</h2>
+  <p>Create a token on the <a href="/wallet.html">wallet page</a> and point any OpenAI-compatible client at
+    <code id="api-base">/api/v1</code>:</p>
+  <pre style="background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto"><code>curl $ORIGIN/api/v1/chat/completions \
+  -H "authorization: Bearer bsw_..." -H "content-type: application/json" \
+  -d '{"model":"ternary-bonsai-2-27b","stream":true,
+       "messages":[{"role":"user","content":"Hi"}]}'</code></pre>
+  <p class="small muted">The response carries the usual OpenAI fields plus a <code>bonsai_swarm</code> object with
+    <code>coins_charged</code> and the provider's measured speed. For the OpenAI Responses and Anthropic Messages
+    shapes, run the downloadable client — it puts LiteLLM in front of this endpoint on your own machine.</p>
+
+  <h2>Why a welcome budget?</h2>
+  <p>So you can try the network before you contribute anything. It is small on purpose: a few conversations.
+    After that, open the <a href="/share.html">Share my GPU</a> page for a while — an evening of sharing pays for a
+    lot of chatting.</p>
+
+  <h2>Rate limits</h2>
+  <p class="small muted">Per account: <span id="p-chat">20</span> chat requests per minute and at most two
+    requests in flight at the same time. Per connection: a limited number of sign-ins per hour and new accounts
+    per day. These exist to keep one script from starving the volunteers.</p>
+</main>
+<script type="module">
+import { api, mountChrome } from '/js/common.js';
+await mountChrome();
+document.getElementById('api-base').textContent = `${location.origin}/api/v1`;
+const cfg = await api('/api/config');
+document.getElementById('p-welcome').textContent = cfg.coins.welcome;
+document.getElementById('p-minute').textContent = `+${cfg.coins.providePerMinute}`;
+document.getElementById('p-serve').textContent = `+${cfg.coins.servePerToken}`;
+document.getElementById('p-prompt').textContent = `−${cfg.coins.consumePromptPerToken}`;
+document.getElementById('p-completion').textContent = `−${cfg.coins.consumeCompletionPerToken}`;
+</script>
+</body>
+</html>

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bonsai Swarm — share your GPU, earn AI Coins</title>
+<meta name="description" content="A free community network that runs Ternary Bonsai 2 27B in volunteers' browsers on WebGPU. Share your GPU at night, use the swarm by day. AI Coins instead of money. Open source.">
+<meta property="og:title" content="Bonsai Swarm — a browser GPU swarm for Ternary Bonsai 2 27B">
+<meta property="og:description" content="Open a tab, share your GPU, earn AI Coins. Spend them when you need an answer. No money, no crypto, fully open source.">
+<link rel="stylesheet" href="/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='10' r='6' fill='%234ade9b'/><circle cx='25' cy='15' r='4' fill='%23ffc751'/><rect x='11' y='26' width='10' height='3' rx='1.5' fill='%237e8e88'/><path d='M16 28V12' stroke='%237e8e88' stroke-width='2'/></svg>">
+</head>
+<body>
+<main>
+  <section class="hero wrap">
+    <canvas id="swarm-canvas" aria-hidden="true"></canvas>
+    <span class="pill jade">Free · open source · no money, no crypto</span>
+    <h1 style="margin-top:20px">Share your GPU at night.<br><span class="grad">Use everyone else's by day.</span></h1>
+    <p class="lead">Bonsai Swarm runs the <b>Ternary Bonsai 2 27B</b> language model directly in your browser on
+      WebGPU — no install, no API key, no server farm. While your tab is open your graphics card answers other
+      people's prompts and earns <b>AI Coins</b>. When you need an answer, you spend them again.</p>
+    <div class="row" style="margin-top:28px">
+      <a class="btn primary" href="/share.html">Share my GPU</a>
+      <a class="btn" href="/chat.html">Open the chat</a>
+      <a class="btn ghost" href="https://github.com/fstandhartinger/bonsai-swarm">Source on GitHub ↗</a>
+    </div>
+    <p class="small muted" style="margin-top:14px">Providing needs a GPU with ≈12 GB of memory or more. Chatting works on anything.</p>
+  </section>
+
+  <section class="wrap">
+    <div class="grid cols-3" id="stats">
+      <div class="stat accent"><div class="v" id="s-providers">–</div><div class="k">GPUs online</div></div>
+      <div class="stat"><div class="v" id="s-ready">–</div><div class="k">Ready to answer right now</div></div>
+      <div class="stat"><div class="v" id="s-capacity">–</div><div class="k">Swarm speed (tokens/s)</div></div>
+      <div class="stat coin"><div class="v" id="s-tokens">–</div><div class="k">Tokens served today</div></div>
+      <div class="stat"><div class="v" id="s-queue">–</div><div class="k">Requests waiting</div></div>
+      <div class="stat"><div class="v" id="s-accounts">–</div><div class="k">Accounts</div></div>
+    </div>
+    <p class="small muted" style="margin-top:10px">Every number on this page comes straight out of the ledger. Nothing here is decoration.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>How it works</h2>
+    <div class="grid cols-3">
+      <div class="card">
+        <div class="pill jade" style="margin-bottom:10px">Step 1</div>
+        <h3>Open a tab</h3>
+        <p class="small muted" style="margin:0">The model (5.9 GB, ternary-quantised) downloads once and stays in your
+          browser's storage. It runs on your GPU through WebGPU in a Web Worker, so it keeps working while the tab
+          sits in the background.</p>
+      </div>
+      <div class="card">
+        <div class="pill gold" style="margin-bottom:10px">Step 2</div>
+        <h3>Earn AI Coins</h3>
+        <p class="small muted" style="margin:0">You earn coins for every minute you are online and ready, and more for
+          every token your GPU actually generates for someone else. Levels, streaks and badges come along for the ride.</p>
+      </div>
+      <div class="card">
+        <div class="pill" style="margin-bottom:10px">Step 3</div>
+        <h3>Spend them</h3>
+        <p class="small muted" style="margin:0">Chatting costs coins per token. New accounts start with a welcome
+          budget, so you can try the swarm before you ever share anything. Your balance can never go negative.</p>
+      </div>
+    </div>
+    <p class="small muted" style="margin-top:12px">
+      The trick is time zones: your machine is idle while you sleep, and somebody twelve hours away is awake and asking.
+      <a href="/coins.html">See the exact rates →</a>
+    </p>
+  </section>
+
+  <section class="wrap">
+    <h2>Be honest with me</h2>
+    <div class="grid cols-2">
+      <div class="card">
+        <h3>What it takes to provide</h3>
+        <ul class="small muted" style="margin:6px 0 0;padding-left:20px">
+          <li><b>≥ 12 GB of GPU memory</b>, 16 GB is comfortable. Apple Silicon Pro/Max with ≥ 24 GB unified memory works too.</li>
+          <li>A 5.9 GB one-time download and up to ~10 GB of extra system RAM while loaded.</li>
+          <li>Measured on an 8 GB RTX 4060 laptop: <b>2.5 tokens/s</b> — the weights spill out of VRAM. That machine can
+            chat but is not admitted as a provider.</li>
+          <li>Admission runs a real benchmark in your browser and needs <b id="min-tps">10</b> tokens/s.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>What you are agreeing to</h3>
+        <ul class="small muted" style="margin:6px 0 0;padding-left:20px">
+          <li><b>Strangers' prompts run on your machine</b> while you share. They are relayed by our coordinator and
+            never stored — but they pass through your browser.</li>
+          <li><b>Your prompts run on a stranger's machine.</b> Don't send anything personal or secret.</li>
+          <li>A 27B ternary model is small. Code and arithmetic are decent; factual questions — especially in German —
+            can be confidently wrong.</li>
+          <li>No money is involved anywhere. AI Coins have no value outside this network and never will.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <h2>Top providers</h2>
+    <div class="card" id="lb-card">
+      <div class="muted small" id="lb-empty">Nobody has opted into the public leaderboard yet.</div>
+      <table id="lb-table" hidden>
+        <thead><tr><th style="width:44px">#</th><th>Provider</th><th>Level</th><th class="num">AI Coins earned</th><th class="num">Tokens served</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="row" style="margin-top:14px">
+        <a class="btn btn-sm ghost" href="/leaderboard.html">Full leaderboard</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <h2>Run it from the command line</h2>
+    <div class="card">
+      <p class="small muted">The downloadable client does both sides: it starts a real Chrome with the throttling
+        switches off to provide, and it exposes <b>OpenAI Chat Completions</b>, <b>OpenAI Responses</b> and
+        <b>Anthropic Messages</b> compatible endpoints on <span class="kbd">127.0.0.1:4777</span> so your existing
+        tools can use the swarm.</p>
+      <pre style="background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto"><code>npx bonsai-swarm-client login      # paste an API token from your wallet page
+npx bonsai-swarm-client provide    # share this machine's GPU
+npx bonsai-swarm-client serve      # OpenAI / Responses / Anthropic on 127.0.0.1:4777</code></pre>
+      <div class="row">
+        <a class="btn btn-sm" href="https://github.com/fstandhartinger/bonsai-swarm/tree/main/client">Client README ↗</a>
+        <a class="btn btn-sm ghost" href="/coins.html#api">API docs</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <div class="card raised">
+      <div class="spread">
+        <div>
+          <h3 style="margin:0">Built on other people's good work</h3>
+          <p class="small muted" style="margin:6px 0 0;max-width:62ch">The model is
+            <a href="https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf">Ternary Bonsai 2 27B</a> by Prism ML.
+            The WebGPU kernels that make it run in a browser come from the
+            <a href="https://huggingface.co/spaces/webml-community/ternary-bonsai-2-webgpu-kernels">webml-community space</a>
+            by Xenova / the transformers.js community. This network is the thin layer that lets those browsers find each other.</p>
+        </div>
+        <a class="btn" href="/share.html">Join the swarm</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import { $, api, el, fmt, mountChrome, swarmCanvas, rollTo } from '/js/common.js';
+
+await mountChrome();
+swarmCanvas($('#swarm-canvas'));
+
+const put = (id, value, format = fmt.int) => rollTo($(id), value, { format });
+
+async function refresh() {
+  try {
+    const s = await api('/api/stats');
+    put('#s-providers', s.providersOnline);
+    put('#s-ready', s.providersReady);
+    put('#s-capacity', s.capacityTps || 0, (n) => Number(n).toFixed(1));
+    put('#s-tokens', s.tokensToday);
+    put('#s-queue', s.queueLength);
+    put('#s-accounts', s.accounts);
+    $('#min-tps').textContent = s.minDecodeTps;
+  } catch { /* transient */ }
+}
+
+async function leaderboard() {
+  const { entries } = await api('/api/leaderboard?limit=5').catch(() => ({ entries: [] }));
+  if (!entries.length) return;
+  $('#lb-empty').hidden = true;
+  const table = $('#lb-table');
+  table.hidden = false;
+  const body = table.querySelector('tbody');
+  body.replaceChildren(...entries.map((e) => el('tr', {},
+    el('td', { className: 'muted', textContent: `${e.rank}` }),
+    el('td', {}, el('b', { textContent: e.name })),
+    el('td', {}, el('span', { className: 'pill jade', textContent: `${e.level.level} · ${e.level.name}` })),
+    el('td', { className: 'num', textContent: fmt.coins(e.earned) }),
+    el('td', { className: 'num', textContent: fmt.int(e.tokensServed) }))));
+}
+
+refresh();
+leaderboard();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Share my GPU — Bonsai Swarm</title>
+<meta name="description" content="Keep a tab open, let your graphics card answer other people's prompts and earn AI Coins.">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main class="wrap" style="padding-top:30px">
+  <div class="spread">
+    <div>
+      <h1 style="margin-bottom:8px">Share my GPU</h1>
+      <p class="lead" style="margin:0">Keep this tab open and your graphics card answers prompts for other people.
+        You earn <b id="per-minute">2</b> AI Coins per online minute and <b id="per-token">0.5</b> per token you generate.</p>
+    </div>
+    <div class="row">
+      <span id="status-dot" class="dot"></span><span id="status">Not sharing.</span>
+    </div>
+  </div>
+
+  <div class="card raised" style="margin-top:22px">
+    <div class="notice danger">
+      <b>Read this before you start.</b>
+      <ul>
+        <li>The model is downloaded once: about <b id="download-size">5.9 GB</b>, kept in this browser's storage.</li>
+        <li>It needs roughly 8–10 GB of GPU memory and up to ~10 GB of extra system RAM while loaded.</li>
+        <li><b>Other people's prompts run on your machine.</b> They are never stored, but they pass through your browser.</li>
+        <li>Your browser is speed-tested first. Below <b id="min-tps">10</b> tokens/s you can still chat, but the swarm
+          will not send you anyone else's work.</li>
+        <li>Nothing else leaves this page: no files, no screen, no other tabs.</li>
+      </ul>
+    </div>
+
+    <div class="row" style="margin-top:18px">
+      <button id="start" class="primary">Start sharing</button>
+      <button id="pause" hidden>Pause</button>
+      <button id="stop" class="ghost">Stop</button>
+    </div>
+
+    <div id="progress" hidden style="margin-top:18px">
+      <div class="small muted label">preparing…</div>
+      <div class="bar" style="margin-top:7px"><i style="width:0"></i></div>
+    </div>
+  </div>
+
+  <div class="grid cols-2" style="margin-top:18px;align-items:start">
+    <div class="card" id="wallet-card">
+      <div class="row" style="gap:18px;align-items:center">
+        <div class="ring" id="level-ring" style="--p:0">
+          <div class="center"><div class="lvl" id="level-num">1</div><div class="lbl" id="level-name">Seedling</div></div>
+        </div>
+        <div class="stack" style="flex:1;min-width:150px">
+          <div class="tiny">This session</div>
+          <div class="stat coin" style="border:0;background:none;padding:0">
+            <div class="v" id="session-coins">0</div>
+            <div class="k">AI Coins earned since you pressed start</div>
+          </div>
+          <div class="small muted" id="level-progress">—</div>
+          <div class="row" style="margin-top:4px">
+            <span class="streak" id="streak-box" hidden>🔥 <span class="n" id="streak-n">0</span> <span class="small muted">day streak</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid cols-3" id="live-stats">
+      <div class="stat accent"><div class="v" id="tps">–</div><div class="k">Your measured speed</div></div>
+      <div class="stat"><div class="v" id="jobs-served">0</div><div class="k">Requests served</div></div>
+      <div class="stat"><div class="v" id="tokens-served">0</div><div class="k">Tokens generated</div></div>
+      <div class="stat"><div class="v" id="minutes">0</div><div class="k">Credited minutes</div></div>
+      <div class="stat coin"><div class="v" id="balance">–</div><div class="k">Your AI Coins</div></div>
+      <div class="stat"><div class="v" id="net-providers">–</div><div class="k">Swarm</div></div>
+    </div>
+  </div>
+
+  <h2>Achievements</h2>
+  <div class="badges" id="badges"></div>
+
+  <h2>Activity</h2>
+  <div class="card scroll-y">
+    <div id="log" class="muted small">Nothing yet.</div>
+  </div>
+
+  <h2>Tips</h2>
+  <div class="card small muted">
+    <p>The model runs in a Web Worker, so it keeps generating while this tab is in the background. Some systems still
+      throttle a fully minimised window — leave the window visible but behind others, or use the command-line client,
+      which starts a Chrome with the throttling switches turned off.</p>
+    <p style="margin:0">Requests waiting in the swarm right now: <span id="net-queue">0</span>.</p>
+  </div>
+</main>
+<script type="module" src="/js/share.js"></script>
+</body>
+</html>

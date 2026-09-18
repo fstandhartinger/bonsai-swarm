@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Datenschutzerklärung — Bonsai Swarm</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main class="wrap narrow" style="padding-top:36px" lang="de">
+  <h1>Datenschutzerklärung</h1>
+
+  <h2>Verantwortlicher</h2>
+  <p>productivity-boost.com Betriebs UG (haftungsbeschränkt) &amp; Co. KG<br>
+     Reichenbergerstr. 2, 94036 Passau, Deutschland<br>
+     E-Mail: <a href="mailto:info@productivity-boost.com">info@productivity-boost.com</a></p>
+
+  <h2>Das Wichtigste zuerst</h2>
+  <div class="notice danger">
+    <b>Ihre Eingaben werden auf fremden Computern verarbeitet.</b> Bonsai Swarm leitet jede Anfrage an den Browser
+    einer anderen teilnehmenden Person weiter, wo das Sprachmodell die Antwort erzeugt. Senden Sie deshalb
+    <b>keine personenbezogenen, vertraulichen oder geschäftsgeheimen Daten</b> über diesen Dienst. Umgekehrt gilt:
+    Wer die eigene Grafikkarte zur Verfügung stellt, verarbeitet damit Eingaben fremder Personen im eigenen Browser.
+  </div>
+
+  <h2>Welche Daten wir speichern</h2>
+  <ul>
+    <li><b>Konto:</b> Benutzername und ein Passwort-Hash (argon2id). Eine E-Mail-Adresse wird nicht erhoben.
+      Bei Anmeldung über Google speichern wir ausschließlich die von Google vergebene Nutzer-ID („sub“) und den
+      angezeigten Namen — keine E-Mail-Adresse, kein Profilbild.</li>
+    <li><b>Punktekonto:</b> ein fortlaufendes, nicht änderbares Buchungsjournal mit Zeitpunkt, Art der Buchung und
+      Punktezahl.</li>
+    <li><b>Anfragen:</b> pro Anfrage ausschließlich Zähler — Anzahl Eingabe- und Ausgabe-Token, Status, Dauer,
+      Geschwindigkeit sowie die beteiligten Konten. <b>Der Inhalt der Prompts und der Antworten wird nicht
+      gespeichert</b>, weder auf dem Server noch in der Datenbank. Er existiert nur flüchtig im Arbeitsspeicher des
+      weiterleitenden Servers und im Browser der beteiligten Personen.</li>
+    <li><b>Beitragende Browser:</b> Zeitpunkt von Verbindung und Trennung, gemessene Geschwindigkeit, eine
+      GPU-Bezeichnung (z. B. „nvidia lovelace“), gutgeschriebene Minuten und Token.</li>
+    <li><b>Anmeldeversuche:</b> zur Missbrauchsabwehr wird pro Anmeldeversuch ein Zähler mit einem Schlüssel aus
+      IP-Adresse bzw. Benutzername gespeichert und nach spätestens zwei Tagen gelöscht.</li>
+    <li><b>Server-Logs:</b> technische Fehlermeldungen. Ein dauerhaftes Zugriffs-Logging mit IP-Adressen findet
+      nicht statt.</li>
+  </ul>
+
+  <h2>Cookies</h2>
+  <p>Wir setzen genau ein technisch notwendiges Cookie für die Anmeldung (<code>bsw_session</code>, HttpOnly,
+     SameSite=Lax, Laufzeit 30 Tage) sowie — nur während einer Google-Anmeldung — ein kurzlebiges Cookie zur
+     Absicherung des Anmeldevorgangs. Es gibt keine Analyse-, Tracking- oder Werbe-Cookies und keine Einbindung
+     externer Werbenetzwerke.</p>
+
+  <h2>Rechtsgrundlagen</h2>
+  <p>Die Verarbeitung erfolgt zur Erfüllung des mit Ihnen geschlossenen Nutzungsverhältnisses und zur Bereitstellung
+     des Dienstes (Art. 6 Abs. 1 lit. b DSGVO) sowie zur Abwehr von Missbrauch und zur Sicherstellung des Betriebs
+     (Art. 6 Abs. 1 lit. f DSGVO).</p>
+
+  <h2>Empfänger und Drittlandübermittlung</h2>
+  <ul>
+    <li><b>Andere Teilnehmende:</b> der Inhalt Ihrer Anfrage wird an genau einen freiwilligen Browser weitergeleitet.
+      Wer das ist, erfahren Sie nicht, und der beitragende Browser erfährt nicht, von wem die Anfrage stammt.
+      Diese Rechner können weltweit stehen.</li>
+    <li><b>Hugging Face:</b> die Modellgewichte werden beim Beitragen direkt aus dem Content-Delivery-Netz von
+      Hugging Face in Ihren Browser geladen. Dabei wird Ihre IP-Adresse an diesen Anbieter übermittelt.</li>
+    <li><b>Google:</b> nur wenn Sie die Anmeldung mit Google aktiv wählen.</li>
+    <li><b>Hosting:</b> Server in Deutschland (Hetzner Online GmbH, Auftragsverarbeitung).</li>
+  </ul>
+
+  <h2>Speicherdauer</h2>
+  <p>Kontodaten und Buchungsjournal bleiben bestehen, solange das Konto besteht. Anmeldeversuche werden nach zwei
+     Tagen gelöscht. Prompt-Inhalte werden gar nicht erst gespeichert.</p>
+
+  <h2>Ihre Rechte</h2>
+  <p>Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit
+     und Widerspruch sowie das Recht, sich bei einer Aufsichtsbehörde zu beschweren. Für die Löschung Ihres Kontos
+     genügt eine formlose E-Mail an die oben genannte Adresse.</p>
+
+  <h2>Quelloffenheit</h2>
+  <p>Der gesamte Quelltext dieses Dienstes ist unter
+     <a href="https://github.com/fstandhartinger/bonsai-swarm">github.com/fstandhartinger/bonsai-swarm</a>
+     einsehbar. Was hier beschrieben ist, lässt sich dort nachlesen.</p>
+</main>
+<script type="module">import { mountChrome } from '/js/common.js'; mountChrome();</script>
+</body>
+</html>

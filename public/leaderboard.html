@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leaderboard — Bonsai Swarm</title>
+<meta name="description" content="The volunteers who gave the most GPU time to the Bonsai Swarm.">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main class="wrap" style="padding-top:30px">
+  <h1 style="margin-bottom:8px">Leaderboard</h1>
+  <p class="lead">The people whose graphics cards did the most work for strangers. Opt-in only — you decide on your
+    <a href="/wallet.html">wallet page</a> whether you appear here.</p>
+
+  <div class="card" style="margin-top:20px">
+    <div class="muted small" id="empty">Nobody has opted in yet. Be the first.</div>
+    <table id="tbl" hidden>
+      <thead><tr><th style="width:52px">#</th><th>Provider</th><th>Level</th><th class="num">AI Coins earned</th><th class="num">Tokens served</th><th class="num">Requests</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="spread">
+      <p class="small muted" style="margin:0;max-width:60ch">Ranked by lifetime AI Coins earned from providing —
+        online minutes plus tokens generated for other people. Coins you spend are not subtracted here, and nothing
+        about what anyone asked the swarm is ever shown.</p>
+      <a class="btn primary" href="/share.html">Share my GPU</a>
+    </div>
+  </div>
+</main>
+<script type="module">
+import { $, api, el, fmt, mountChrome } from '/js/common.js';
+await mountChrome();
+
+const { entries } = await api('/api/leaderboard?limit=100').catch(() => ({ entries: [] }));
+if (entries.length) {
+  $('#empty').hidden = true;
+  $('#tbl').hidden = false;
+  const medal = (r) => (r === 1 ? '🥇' : r === 2 ? '🥈' : r === 3 ? '🥉' : `${r}`);
+  $('#tbl tbody').replaceChildren(...entries.map((e) => el('tr', {},
+    el('td', { className: 'muted', textContent: medal(e.rank) }),
+    el('td', {}, el('b', { textContent: e.name })),
+    el('td', {}, el('span', { className: 'pill jade', textContent: `${e.level.level} · ${e.level.name}` })),
+    el('td', { className: 'num', textContent: fmt.coins(e.earned) }),
+    el('td', { className: 'num', textContent: fmt.int(e.tokensServed) }),
+    el('td', { className: 'num', textContent: fmt.int(e.jobsServed) }))));
+}
+</script>
+</body>
+</html>
