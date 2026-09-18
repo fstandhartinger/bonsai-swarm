@@ -92,6 +92,11 @@ export const config = {
       || 'https://webml-community-ternary-bonsai-2-webgpu-kernels.static.hf.space/index.html',
     cacheDir: process.env.RUNTIME_CACHE_DIR || '/tmp/bonsai-runtime-cache',
     refreshMs: num('RUNTIME_REFRESH_MS', 6 * 60 * 60 * 1000),
+    // Optional supply-chain pin. The space is somebody else's repository: if it ever
+    // changed, that code would run in every volunteer's browser on our own origin.
+    // Set RUNTIME_SHA256 to the sha reported by /api/stats to freeze it; a changed
+    // upstream is then refused and the last good copy on disk keeps serving.
+    pinnedSha: (process.env.RUNTIME_SHA256 || '').trim().toLowerCase(),
   },
 };
 
