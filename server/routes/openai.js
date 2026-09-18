@@ -2,7 +2,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { requireAuth, isTestMode } from '../auth.js';
-import { normalizeMessages, accountChatLimiter, bufferingSink } from './api.js';
+import { normalizeMessages, accountChatLimiter, bufferingSink, servedByHeader } from './api.js';
 import { clientIp } from '../util.js';
 
 export const MODEL_NAME = 'bonsai-swarm/ternary-bonsai-2-27b';
@@ -124,7 +124,7 @@ export function openaiRouter(coordinator) {
         'cache-control': 'no-cache, no-transform',
         connection: 'keep-alive',
         'x-accel-buffering': 'no',
-        'x-bonsai-served-by': coordinator.likelyRoute(),
+        'x-bonsai-served-by': servedByHeader(job, coordinator),
       });
       res.flushHeaders?.();
       const send = (obj) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(obj)}\n\n`); };

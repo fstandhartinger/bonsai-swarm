@@ -12,6 +12,12 @@ import { publicStats } from '../stats.js';
 
 export const accountChatLimiter = new RateLimiter(config.limits.chatPerMinute, 60_000);
 
+export function servedByHeader(job, coordinator) {
+  if (job?.servedBy === 'fallback') return 'fallback';
+  if (job?.providerId) return 'community';
+  return coordinator.likelyRoute();
+}
+
 /** Collects coordinator events until the HTTP status is decided, then forwards. */
 export function bufferingSink() {
   const events = [];
@@ -283,7 +289,7 @@ export function apiRouter(coordinator) {
       'cache-control': 'no-cache, no-transform',
       connection: 'keep-alive',
       'x-accel-buffering': 'no',
-      'x-bonsai-served-by': coordinator.likelyRoute(),
+      'x-bonsai-served-by': servedByHeader(job, coordinator),
     });
     res.flushHeaders?.();
     const { sink } = sseSink(res);
