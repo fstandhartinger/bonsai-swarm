@@ -73,6 +73,39 @@ test('a tampered session cookie is not accepted', async () => {
   assert.equal(res.json.signedIn, false);
 });
 
+test('ordinary logout emits Max-Age=0 with the same flags the session was issued with', async () => {
+  const c = client(srv.url);
+  await signUp(c, 'logoutflags');
+  const res = await c.req('/api/auth/logout', { method: 'POST' });
+  assert.equal(res.status, 200);
+  const setCookie = res.headers.getSetCookie?.() || [];
+  const session = setCookie.find((line) => line.startsWith('bsw_session='));
+  assert.ok(session, 'logout must Set-Cookie the session cookie');
+  assert.match(session, /Max-Age=0/i);
+  assert.match(session, /HttpOnly/i);
+  assert.match(session, /SameSite=Lax/i);
+  assert.match(session, /Path=\//i);
+});
+
+test('token-session rejects a raw API token and a second use of a hand-off code', async () => {
+  const c = client(srv.url);
+  await signUp(c, 'handofftoken');
+  const created = await c.req('/api/tokens', { method: 'POST', body: { name: 'cli' } });
+  const token = created.json.token;
+  const rejected = await client(srv.url).req('/api/auth/token-session', { method: 'POST', body: { token } });
+  assert.equal(rejected.status, 401);
+
+  const handoff = await fetch(`${srv.url}/api/auth/handoff`, {
+    method: 'POST', headers: { authorization: `Bearer ${token}`, origin: srv.url },
+  });
+  const { code } = await handoff.json();
+  const other = client(srv.url);
+  await signUp(other, 'alreadyhere');
+  const clash = await other.req('/api/auth/token-session', { method: 'POST', body: { code } });
+  assert.equal(clash.status, 409);
+  assert.equal(clash.json.error, 'already_signed_in');
+});
+
 test('logout everywhere invalidates the old cookie', async () => {
   const c = client(srv.url);
   await signUp(c, 'heidi');

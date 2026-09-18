@@ -132,24 +132,28 @@ export async function findUserById(id) {
 
 // ---------------------------------------------------------------- sessions
 
+export function sessionCookieOpts({ maxAge = SESSION_TTL_SECONDS * 1000 } = {}) {
+  return {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: config.publicUrl.startsWith('https://'),
+    maxAge,
+    path: '/',
+  };
+}
+
 export function issueSession(res, user) {
   const token = signPayload(config.sessionSecret, {
     uid: Number(user.id),
     sv: user.session_version,
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
   });
-  res.cookie(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: config.publicUrl.startsWith('https://'),
-    maxAge: SESSION_TTL_SECONDS * 1000,
-    path: '/',
-  });
+  res.cookie(SESSION_COOKIE, token, sessionCookieOpts());
   return token;
 }
 
 export function clearSession(res) {
-  res.clearCookie(SESSION_COOKIE, { path: '/' });
+  res.clearCookie(SESSION_COOKIE, sessionCookieOpts({ maxAge: 0 }));
 }
 
 export async function userFromSessionToken(token) {

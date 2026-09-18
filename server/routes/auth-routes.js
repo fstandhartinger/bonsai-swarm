@@ -105,8 +105,8 @@ export function authRouter() {
   });
 
   /**
-   * The provider page trades the hand-off code (or, for older clients, the token
-   * itself) for a normal session cookie.
+   * The provider page trades a single-use 60-second hand-off code for a session cookie.
+   * A long-lived API token is not accepted here: that would be a durable login URL.
    *
    * It refuses when this browser is already signed in as somebody else: otherwise a
    * crafted link could quietly move a visitor into the attacker's account, where their
@@ -121,8 +121,10 @@ export function authRouter() {
     await auth.recordAttempt(`handoff:${ip}`);
 
     const code = String(req.body?.code || '');
-    const token = String(req.body?.token || '');
-    const user = code ? await auth.userFromHandoffCode(code) : await auth.userFromApiToken(token);
+    if (!code) {
+      return res.status(401).json({ error: 'bad_token', message: 'A hand-off code is required.' });
+    }
+    const user = await auth.userFromHandoffCode(code);
     if (!user) return res.status(401).json({ error: 'bad_token', message: 'That sign-in link is not valid any more.' });
 
     if (req.user && Number(req.user.id) !== Number(user.id)) {
@@ -165,7 +167,7 @@ export function authRouter() {
   router.get('/google/callback', async (req, res) => {
     if (!config.google.enabled) return res.redirect('/login.html?error=google_disabled');
     const stored = verifyPayload(config.sessionSecret, req.cookies?.[OAUTH_STATE_COOKIE]);
-    res.clearCookie(OAUTH_STATE_COOKIE, { path: '/' });
+    res.clearCookie(OAUTH_STATE_COOKIE, auth.sessionCookieOpts({ maxAge: 0 }));
     if (!stored || !req.query.state || !auth.timingSafeEqual(stored.state, String(req.query.state))) {
       return res.redirect('/login.html?error=oauth_state');
     }
