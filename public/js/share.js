@@ -25,6 +25,7 @@ const state = {
   tokens: 0,
   startedAt: null,
   reconnectTimer: null,
+  currentJobId: null,
   benchmarkDone: false,
   sessionCoins: 0,
   balanceAtStart: null,
@@ -275,6 +276,7 @@ function onWorkerMessage(msg, cfg) {
       return;
 
     case 'job-done':
+      if (state.currentJobId === msg.jobId) state.currentJobId = null;
       state.jobs += 1;
       rollTo($('#jobs-served'), state.jobs, { format: fmt.int, ms: 400 });
       rollTo($('#tokens-served'), state.tokens, { format: fmt.int, ms: 400 });
@@ -286,6 +288,7 @@ function onWorkerMessage(msg, cfg) {
       return;
 
     case 'job-error':
+      if (state.currentJobId === msg.jobId) state.currentJobId = null;
       send({ type: 'job.error', jobId: msg.jobId, message: msg.message });
       log(`A request failed: ${msg.message}`, 'error');
       return;
@@ -302,6 +305,10 @@ function onWorkerMessage(msg, cfg) {
 // ------------------------------------------------------------------ network
 
 function connect(cfg) {
+  if (state.reconnectTimer) { clearTimeout(state.reconnectTimer); state.reconnectTimer = null; }
+  if (state.ws && state.ws.readyState < 2) {
+    try { state.ws.onclose = null; state.ws.close(); } catch { /* replacing this socket */ }
+  }
   const url = new URL('/ws/provider', location.href);
   url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   if (MOCK) url.searchParams.set('mock', '1');
@@ -315,6 +322,10 @@ function connect(cfg) {
   ws.onopen = () => log('Connected to the coordinator.');
   ws.onmessage = (e) => onServerMessage(JSON.parse(e.data), cfg);
   ws.onclose = () => {
+    if (state.currentJobId) {
+      state.worker?.postMessage({ cmd: 'cancel', jobId: state.currentJobId });
+      state.currentJobId = null;
+    }
     if (!state.sharing) return;
     setStatus('Connection lost - reconnecting...', 'busy');
     log('Connection to the coordinator lost, retrying in 5 s.', 'error');
@@ -355,6 +366,11 @@ function onServerMessage(msg, cfg) {
       }
       return;
     case 'job.start':
+      if (state.currentJobId && state.currentJobId !== msg.jobId) {
+        send({ type: 'job.error', jobId: msg.jobId, message: 'busy' });
+        return;
+      }
+      state.currentJobId = msg.jobId;
       setStatus('Answering a request from the network...', 'busy');
       state.worker.postMessage({
         cmd: 'generate',
@@ -365,6 +381,7 @@ function onServerMessage(msg, cfg) {
       });
       return;
     case 'job.cancel':
+      if (state.currentJobId === msg.jobId) state.currentJobId = null;
       state.worker.postMessage({ cmd: 'cancel', jobId: msg.jobId });
       return;
     default:
