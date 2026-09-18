@@ -37,4 +37,10 @@ export async function withTransaction(fn) {
 export async function migrate() {
   const sql = await readFile(fileURLToPath(new URL('./schema.sql', import.meta.url)), 'utf8');
   await pool.query(sql);
+  // Our own rented GPUs are marked here rather than by hand, so a rebuilt database keeps
+  // telling house tokens and community tokens apart.
+  const house = config.ops?.houseAccounts || [];
+  if (house.length) {
+    await pool.query('UPDATE users SET is_house = true WHERE username_lower = ANY($1) AND NOT is_house', [house]);
+  }
 }

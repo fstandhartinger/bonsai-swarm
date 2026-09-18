@@ -10,9 +10,11 @@ import { migrate, pool } from './db.js';
 import * as authModule from './auth.js';
 import { authRouter } from './routes/auth-routes.js';
 import { apiRouter } from './routes/api.js';
+import { opsRouter } from './routes/ops.js';
 import { openaiRouter } from './routes/openai.js';
 import { mountRuntime, loadRuntime } from './runtime.js';
 import { Coordinator } from './coordinator.js';
+import { visitCounter } from './visit-stats.js';
 import { timingSafeEqual } from './util.js';
 
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -71,12 +73,17 @@ export async function createServer({ migrateDb = true } = {}) {
   coordinator.start();
   app.set('coordinator', coordinator);
 
+  // Counts page loads only, from headers the browser already sent. Mounted before the
+  // routers so it sees every page request, and before auth so it never touches an account.
+  app.use(visitCounter({ enabled: config.visitStats }));
+
   app.use(authModule.authMiddleware());
   app.use(authModule.csrfGuard);
 
   mountRuntime(app);
   app.use('/api/auth', authRouter());
   app.use('/api', apiRouter(coordinator));
+  app.use('/api/ops', opsRouter(coordinator));
   app.use('/api/v1', openaiRouter(coordinator));
   app.get('/healthz', (req, res) => res.json({ ok: true }));
 

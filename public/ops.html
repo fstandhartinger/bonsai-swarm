@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Operator statistics — Bonsai Swarm</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<main class="wrap" style="padding-top:30px">
+  <div class="spread" style="align-items:flex-end;gap:16px;flex-wrap:wrap">
+    <div>
+      <h1 style="margin-bottom:6px">Operator statistics</h1>
+      <p class="lead" style="margin:0">How many people use Bonsai Swarm, who actually generates the tokens, and what
+        the AI Coins economy is doing. Aggregate numbers only — no prompt, no answer and no IP address is stored
+        anywhere in this app.</p>
+    </div>
+    <div class="row" id="controls" hidden>
+      <label class="small muted" for="days">Period</label>
+      <select id="days" class="input" style="width:auto">
+        <option value="7">7 days</option>
+        <option value="30" selected>30 days</option>
+        <option value="90">90 days</option>
+      </select>
+      <button class="btn btn-sm ghost" id="signout" type="button">Forget token</button>
+    </div>
+  </div>
+
+  <div class="card" id="gate" hidden style="margin-top:22px;max-width:520px">
+    <h3 style="margin-top:0">Operators only</h3>
+    <p class="small muted">Sign in with the operator account and this page opens by itself.
+      Otherwise paste the server's <span class="kbd">OPS_TOKEN</span>: it is kept in this tab only and sent in an
+      <span class="kbd">Authorization</span> header, never in the address bar.</p>
+    <p class="small" id="error" hidden style="color:var(--rose)"></p>
+    <form id="gate-form" class="row" style="margin-top:10px">
+      <input class="input" id="token" type="password" autocomplete="off" placeholder="Operator token" required
+             style="flex:1;min-width:200px">
+      <button class="btn primary" type="submit">Open</button>
+    </form>
+  </div>
+
+  <div id="dash" hidden style="margin-top:22px"></div>
+</main>
+<script type="module" src="/js/ops.js"></script>
+</body>
+</html>

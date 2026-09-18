@@ -8,6 +8,7 @@ import { RateLimiter, clientIp } from '../util.js';
 import { runtimeStatus } from '../runtime.js';
 import { publicFallbackInfo } from '../fallback.js';
 import * as game from '../gamification.js';
+import { publicStats } from '../stats.js';
 
 const chatLimiter = new RateLimiter(config.limits.chatPerMinute, 60_000);
 
@@ -105,6 +106,14 @@ export function apiRouter(coordinator) {
       runtime: runtimeStatus(),
       fallback: publicFallbackInfo(),
     });
+  });
+
+  // The landing page's statistics strip. Totals only - see server/stats.js.
+  router.get('/stats/public', async (req, res, next) => {
+    try {
+      res.set('cache-control', 'public, max-age=30');
+      res.json(await publicStats(coordinator));
+    } catch (err) { next(err); }
   });
 
   router.get('/config', (req, res) => {

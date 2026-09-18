@@ -947,6 +947,27 @@ export class Coordinator {
     };
   }
 
+  /**
+   * How long each waiting job has already waited, in milliseconds. Used by the operator
+   * scaling endpoint: a queue of one that has waited a minute is a different problem
+   * from a queue of ten that all arrived a second ago.
+   */
+  queueWaits() {
+    const t = now();
+    return this.queue
+      .map((id) => this.jobs.get(id))
+      .filter((job) => job && job.status === 'queued')
+      .map((job) => t - job.queuedAt);
+  }
+
+  /** Every connected provider, flat, for operator views. No prompt or account detail. */
+  providerSnapshot() {
+    return [...this.providers.values()].map((p) => ({
+      id: p.id, userId: p.userId, state: p.state, admitted: p.admitted,
+      decodeTps: p.decodeTps, jobsServed: p.jobsServed, isMock: p.isMock,
+    }));
+  }
+
   providerViewFor(userId) {
     return [...this.providers.values()]
       .filter((p) => p.userId === Number(userId))

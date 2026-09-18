@@ -121,3 +121,22 @@ CREATE OR REPLACE VIEW v_lifetime_earned AS
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS served_by text NOT NULL DEFAULT 'community';
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS fallback_model text;
 CREATE INDEX IF NOT EXISTS jobs_served_by_idx ON jobs(served_by, created_at DESC);
+
+-- ---------------------------------------------------------------- statistics
+-- Our own rented GPUs sign in like anybody else, but they are not volunteers: they are
+-- excluded from the leaderboard and counted separately everywhere in the statistics, so
+-- "the community served N tokens" never quietly means "we served them ourselves".
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_house boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS users_created_idx ON users(created_at);
+CREATE INDEX IF NOT EXISTS provider_sessions_window_idx ON provider_sessions(connected_at, disconnected_at);
+
+-- Aggregate daily page counts (server/visit-stats.js). No IP, user agent, identifier or
+-- visitor-level row is ever written here - only totals per day, page and referring host.
+CREATE TABLE IF NOT EXISTS visit_daily (
+  day           date NOT NULL,
+  path          text NOT NULL,
+  referrer_host text NOT NULL DEFAULT '',
+  views         integer NOT NULL DEFAULT 0,
+  visits        integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, path, referrer_host)
+);

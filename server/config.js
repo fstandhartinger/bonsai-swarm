@@ -160,6 +160,19 @@ export const config = {
     firstTokenMs: num('FALLBACK_FIRST_TOKEN_MS', 30000),
   },
 
+  // Statistics. The operator dashboard and the autoscaler's scaling signal live behind
+  // one bearer token; without it, /api/ops/* answers 404 and the dashboard page says so.
+  ops: {
+    token: (process.env.OPS_TOKEN || '').trim(),
+    // Usernames of our own rented GPU accounts. They are flagged in the database on
+    // boot, kept out of the leaderboard and counted apart from real volunteers.
+    houseAccounts: String(process.env.HOUSE_ACCOUNTS || 'house-gpu-1')
+      .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+  },
+  // Aggregate daily page counts (server/visit-stats.js). Nothing is stored on the
+  // visitor's device and no identifier is derived; VISIT_STATS=0 switches it off entirely.
+  visitStats: bool('VISIT_STATS', true),
+
   runtime: {
     // The Hugging Face space we lift the WebGPU runtime from at request time.
     // The space declares no licence, so its code is not vendored into this repo -

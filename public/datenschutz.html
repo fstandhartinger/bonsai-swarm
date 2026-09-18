@@ -40,6 +40,11 @@
       IP-Adresse bzw. Benutzername gespeichert und nach spätestens zwei Tagen gelöscht.</li>
     <li><b>Server-Logs:</b> technische Fehlermeldungen. Ein dauerhaftes Zugriffs-Logging mit IP-Adressen findet
       nicht statt.</li>
+    <li><b>Seitenaufrufe (Reichweitenmessung):</b> pro Kalendertag ein Zähler je Seite und je verweisender
+      Internet-Adresse — sonst nichts. Gespeichert werden ausschließlich Tagessummen der Form
+      „18.09.2026, /chat.html, von x.com, 12 Aufrufe“. Es wird <b>kein Kennzeichen</b> gebildet: keine IP-Adresse,
+      kein Hash, kein Fingerabdruck, keine Kennung im Gerät. Deshalb können wir auch keine „eindeutigen Besucher“
+      zählen und tun es nicht. Die Zähler werden nach 13 Monaten gelöscht.</li>
   </ul>
 
   <h2>Cookies</h2>
@@ -47,6 +52,17 @@
      SameSite=Lax, Laufzeit 30 Tage) sowie — nur während einer Google-Anmeldung — ein kurzlebiges Cookie zur
      Absicherung des Anmeldevorgangs. Es gibt keine Analyse-, Tracking- oder Werbe-Cookies und keine Einbindung
      externer Werbenetzwerke.</p>
+
+  <h2>Reichweitenmessung ohne Einwilligung</h2>
+  <p>Die oben genannten Seitenzähler laufen ausschließlich auf unserem eigenen Server und werten nur die
+     HTTP-Kopfzeilen der Anfrage aus, die Ihr Browser ohnehin sendet. Es wird <b>nichts auf Ihrem Gerät gespeichert
+     oder aus Ihrem Gerät ausgelesen</b> — kein Cookie, kein Local Storage, kein Zählpixel, kein Skript, keine
+     Client Hints. Damit ist keine Einwilligung nach § 25 TDDDG erforderlich, und es gibt deshalb auch kein
+     Cookie-Banner. Ein Analyse-Dienstleister ist nicht beteiligt; die Zahlen verlassen unseren Server nicht.</p>
+  <p>Sendet Ihr Browser <code>Global Privacy Control</code> (<code>Sec-GPC: 1</code>) oder
+     <code>Do Not Track</code> (<code>DNT: 1</code>), wird die Anfrage <b>gar nicht gezählt</b>. Das ist der
+     wirksamste Widerspruch: weil die Tagessummen keiner Person zugeordnet werden können, gibt es nichts, was wir
+     im Nachhinein für eine einzelne Person löschen könnten.</p>
 
   <h2>Rechtsgrundlagen</h2>
   <p>Die Verarbeitung erfolgt zur Erfüllung des mit Ihnen geschlossenen Nutzungsverhältnisses und zur Bereitstellung
@@ -66,7 +82,8 @@
 
   <h2>Speicherdauer</h2>
   <p>Kontodaten und Buchungsjournal bleiben bestehen, solange das Konto besteht. Anmeldeversuche werden nach zwei
-     Tagen gelöscht. Prompt-Inhalte werden gar nicht erst gespeichert.</p>
+     Tagen gelöscht. Die Tagessummen der Reichweitenmessung werden nach 13 Monaten gelöscht. Prompt-Inhalte werden
+     gar nicht erst gespeichert.</p>
 
   <h2>Ihre Rechte</h2>
   <p>Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit

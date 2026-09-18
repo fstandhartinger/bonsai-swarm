@@ -193,7 +193,7 @@ export async function leaderboard(limit = 25) {
       LEFT JOIN v_lifetime_earned e ON e.user_id = u.id
       LEFT JOIN (SELECT provider_user_id, SUM(completion_tokens) AS tokens, COUNT(*) AS jobs
                    FROM jobs WHERE completion_tokens > 0 GROUP BY provider_user_id) j ON j.provider_user_id = u.id
-     WHERE u.leaderboard_opt_in AND NOT u.disabled
+     WHERE u.leaderboard_opt_in AND NOT u.disabled AND NOT COALESCE(u.is_house, false)
      ORDER BY earned DESC, tokens_served DESC
      LIMIT $1`, [Math.min(100, Number(limit) || 25)]);
   return rows.map((r, i) => ({
