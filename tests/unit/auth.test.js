@@ -87,7 +87,7 @@ test('ordinary logout emits Max-Age=0 with the same flags the session was issued
   assert.match(session, /Path=\//i);
 });
 
-test('token-session rejects a raw API token and a second use of a hand-off code', async () => {
+test('token-session rejects a raw API token and refuses a hand-off code when already signed in as somebody else', async () => {
   const c = client(srv.url);
   await signUp(c, 'handofftoken');
   const created = await c.req('/api/tokens', { method: 'POST', body: { name: 'cli' } });
