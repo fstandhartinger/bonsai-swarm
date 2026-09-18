@@ -1,7 +1,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import { config } from '../config.js';
-import { requireAuth } from '../auth.js';
+import { requireAuth, isTestMode } from '../auth.js';
 import { normalizeMessages, accountChatLimiter, bufferingSink } from './api.js';
 import { clientIp } from '../util.js';
 
@@ -66,6 +66,7 @@ export function openaiRouter(coordinator) {
         coordinator.submit({
           user: req.user, messages, maxNewTokens: maxTokens, enableThinking, sink,
           clientIp: clientIp(req, { trustProxy: config.trustProxy }),
+          allowMock: isTestMode(req),
         })
           .then((job) => { jobRef = job; })
           .catch((err) => resolve({ ok: false, summary: { error: err.message, code: err.code } }));
@@ -107,6 +108,7 @@ export function openaiRouter(coordinator) {
         job = await coordinator.submit({
           user: req.user, messages, maxNewTokens: maxTokens, enableThinking, sink: buf.sink,
           clientIp: clientIp(req, { trustProxy: config.trustProxy }),
+          allowMock: isTestMode(req),
         });
       } catch (err) {
         const status = err.code === 'insufficient_coins' ? 402

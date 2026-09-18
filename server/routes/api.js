@@ -267,6 +267,7 @@ export function apiRouter(coordinator) {
         maxNewTokens: req.body?.maxTokens,
         enableThinking: Boolean(req.body?.thinking),
         clientIp: clientIp(req, { trustProxy: config.trustProxy }),
+        allowMock: auth.isTestMode(req),
         sink: buf.sink,
       });
     } catch (err) {
