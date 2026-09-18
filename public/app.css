@@ -320,8 +320,8 @@ footer.site a:hover { color: var(--ink); }
 .ring { --p: 0; width: 108px; height: 108px; flex: none; position: relative; display: grid; place-items: center; }
 .ring::before {
   content: ''; position: absolute; inset: 0; border-radius: 50%;
-  /* min 3% so a brand-new account sees a ring, not a dead circle */
-  background: conic-gradient(var(--jade) calc(max(var(--p), 3) * 1%), var(--panel-2) 0);
+  /* an empty track reads as "nothing earned yet"; a 3% stub read as a rendering bug */
+  background: conic-gradient(var(--jade) calc(var(--p) * 1%), var(--panel-2) 0);
   box-shadow: 0 0 22px -6px color-mix(in srgb, var(--jade) 55%, transparent);
   mask: radial-gradient(farthest-side, transparent calc(100% - 9px), #000 calc(100% - 8px));
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 9px), #000 calc(100% - 8px));
@@ -363,9 +363,9 @@ footer.site a:hover { color: var(--ink); }
 
 /* toast -------------------------------------------------------------------- */
 #toasts {
-  position: fixed; left: 50%; translate: -50% 0; top: calc(var(--header-h) + 12px);
-  z-index: 100; display: flex; flex-direction: column; gap: 10px; align-items: center;
-  pointer-events: none; width: min(380px, calc(100vw - 32px));
+  position: fixed; right: 24px; bottom: 24px;
+  z-index: 100; display: flex; flex-direction: column; gap: 10px; align-items: flex-end;
+  pointer-events: none; width: min(360px, calc(100vw - 32px));
 }
 .toast {
   display: flex; gap: 12px; align-items: center;
@@ -381,8 +381,8 @@ footer.site a:hover { color: var(--ink); }
 .toast .t { font-weight: 640; font-size: 14.4px; }
 .toast .s { font-size: 12.6px; color: var(--ink-3); }
 .toast.out { animation: toastOut .3s ease forwards; }
-@keyframes toastIn { from { opacity: 0; transform: translateY(-14px) scale(.94); } }
-@keyframes toastOut { to { opacity: 0; transform: translateY(-8px) scale(.97); } }
+@keyframes toastIn { from { opacity: 0; transform: translateY(16px) scale(.94); } }
+@keyframes toastOut { to { opacity: 0; transform: translateY(8px) scale(.97); } }
 
 /* streak flames ------------------------------------------------------------ */
 .streak { display: inline-flex; align-items: baseline; gap: 6px; font-weight: 640; }
@@ -498,7 +498,7 @@ details.think .txt { font-size: 13px; color: var(--ink-3); white-space: pre-wrap
   .composer textarea { flex: 1 1 100%; }
   .composer .box button { flex: 1; justify-content: center; }
   .thread { scroll-margin-top: calc(var(--header-h) + 10px); }
-  #toasts { top: auto; bottom: 16px; }
+  #toasts { right: 16px; left: 16px; bottom: 16px; width: auto; align-items: stretch; }
   .card > .row > button, .card > .row > .btn { flex: 1 1 100%; justify-content: center; }
   table.compact-sm th:nth-child(n+5), table.compact-sm td:nth-child(n+5) { display: none; }
 }
