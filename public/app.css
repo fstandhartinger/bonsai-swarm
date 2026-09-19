@@ -668,3 +668,6 @@ html[data-theme='light'] .ring::before {
   #toasts { top: calc(var(--header-h) + 10px); bottom: auto; flex-direction: column; }
   @keyframes toastIn { from { opacity: 0; transform: translateY(-16px) scale(.94); } }
 }
+
+/* command lines in cards (share page, llama.cpp setup): scroll instead of overflowing on a phone */
+.card ol pre, .card > pre { background: var(--bg-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; overflow-x: auto; max-width: 100%; margin: 8px 0; }
