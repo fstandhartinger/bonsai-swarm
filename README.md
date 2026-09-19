@@ -35,8 +35,14 @@ roughly fair with a points ledger instead of a payment system.
 ```
 
 * **Providers** connect over a WebSocket, run an admission benchmark in the browser
-  (`benchmarkFixedTokenIds`) and must reach **10 decoded tokens/s** to be given
-  strangers' work. One job at a time per provider — the library cannot batch.
+  (`benchmarkFixedTokenIds`, warm, best of two) and must reach **5 decoded tokens/s**
+  (about reading speed) to be given strangers' work. Faster providers are asked first;
+  a slow one only gets a prompt when every faster one is busy, and the requester is shown
+  its speed. One job at a time per provider — the library cannot batch.
+* **Local-server providers**: `node client/bin/cli.js provide --local http://127.0.0.1:8080`
+  relays to the volunteer's own llama.cpp server. The coordinator checks the model (six
+  greedy answers compared with Bonsai 2 27B's, `server/integrity.js`) and times it itself
+  before admitting it. Why: `docs/12GB-CARDS.md`.
 * **Consumers** post to `/api/chat/stream` (SSE) from the web chat, or to
   `/api/v1/chat/completions` (OpenAI-compatible) with an API token.
 * **The coordinator** counts the tokens it actually relayed. A modified browser cannot
@@ -104,7 +110,8 @@ server/           coordinator, auth, ledger, gamification, HTTP + WebSocket API
   runtime.js      fetches the WebGPU library from the HF space and serves it same-origin
 public/           the web app (vanilla ES modules, no build step)
   js/bonsai-worker.js   the Web Worker that actually runs the model
-client/           the downloadable CLI: provide from a real Chrome, consume via
+docs/12GB-CARDS.md  why a 12 GB card was slow in the browser, and the measurements behind the bar
+client/           the downloadable CLI: provide from llama.cpp or a real Chrome, consume via
                   OpenAI / OpenAI-Responses / Anthropic-Messages endpoints
   fallback.js     the free fallback model: upstreams tried in order, always labelled
 tests/unit/       auth, ledger and coordinator tests against a real Postgres

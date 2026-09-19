@@ -148,6 +148,9 @@ function attachProviderSocket(server, coordinator) {
         const provider = await coordinator.addProvider({
           ws, user, isMock, adminOverride, userAgent: req.headers['user-agent'] || '',
           tzOffsetMinutes: Number.isFinite(tzRaw) ? tzRaw : 0,
+          // The command-line client relaying to a local llama.cpp server. It is checked
+          // and timed by the coordinator before it is admitted; see coordinator.startVerification.
+          kind: url.searchParams.get('kind') === 'local' ? 'local' : 'browser',
         });
         ws.on('message', (data) => {
           coordinator.handleProviderMessage(provider, data.toString())

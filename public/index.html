@@ -8,6 +8,7 @@
 <meta property="og:title" content="Bonsai Swarm — a browser GPU swarm for Ternary Bonsai 2 27B">
 <meta property="og:description" content="Open a tab, share your GPU, earn AI Coins. Spend them when you need an answer. No money, no crypto, fully open source.">
 <link rel="stylesheet" href="/app.css">
+<link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='10' r='6' fill='%234ade9b'/><circle cx='25' cy='15' r='4' fill='%23ffc751'/><rect x='11' y='26' width='10' height='3' rx='1.5' fill='%237e8e88'/><path d='M16 28V12' stroke='%237e8e88' stroke-width='2'/></svg>">
 </head>
 <body>
@@ -93,7 +94,9 @@
           <li>A 5.9 GB one-time download and up to ~10 GB of extra system RAM while loaded.</li>
           <li>Measured on an 8 GB RTX 4060 laptop: <b>2.5 tokens/s</b> — the weights spill out of VRAM. That machine can
             chat but is not admitted as a provider.</li>
-          <li>Admission runs a real benchmark in your browser and needs <b id="min-tps">10</b> tokens/s.</li>
+          <li>Admission runs a real benchmark in your browser and needs <b id="min-tps">5</b> tokens/s — about reading
+            speed. Faster GPUs are always asked first. On Windows, <a href="/share.html#local">sharing from llama.cpp</a>
+            is several times faster than the browser.</li>
         </ul>
       </div>
       <div class="card">
@@ -127,13 +130,15 @@
   <section class="wrap">
     <h2>Run it from the command line</h2>
     <div class="card">
-      <p class="small muted">The downloadable client does both sides: it starts a real Chrome with the throttling
-        switches off to provide, and it exposes <b>OpenAI Chat Completions</b>, <b>OpenAI Responses</b> and
+      <p class="small muted">The downloadable client does both sides: it shares your GPU — through your own llama.cpp
+        server, or a real Chrome with the throttling switches off — and it exposes <b>OpenAI Chat Completions</b>, <b>OpenAI Responses</b> and
         <b>Anthropic Messages</b> compatible endpoints on <span class="kbd">127.0.0.1:4777</span> so your existing
         tools can use the swarm.</p>
-      <pre style="background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto"><code>npx bonsai-swarm-client login      # paste an API token from your wallet page
-npx bonsai-swarm-client provide    # share this machine's GPU
-npx bonsai-swarm-client serve      # OpenAI / Responses / Anthropic on 127.0.0.1:4777</code></pre>
+      <pre style="background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto"><code># Node.js 22+, then in the client folder of github.com/fstandhartinger/bonsai-swarm (no npm install needed)
+node bin/cli.js login                                 # paste an API token from your wallet page
+node bin/cli.js provide --local http://127.0.0.1:8080 # share through your llama.cpp server
+node bin/cli.js provide                               # or: share through a browser
+node bin/cli.js serve                                 # OpenAI / Responses / Anthropic on 127.0.0.1:4777</code></pre>
       <div class="row">
         <a class="btn btn-sm" href="https://github.com/fstandhartinger/bonsai-swarm/tree/main/client">Client README ↗</a>
         <a class="btn btn-sm ghost" href="/coins.html#api">API docs</a>

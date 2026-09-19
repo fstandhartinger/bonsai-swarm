@@ -5,8 +5,29 @@ import { post, costForJob, earningsForJob, affordableCompletionTokens } from './
 import { estimatePromptTokens, roundCoins, RateLimiter } from './util.js';
 import { runFallbackCompletion, fallbackNotice } from './fallback.js';
 import * as game from './gamification.js';
+import {
+  INTEGRITY_PROMPTS, INTEGRITY_MAX_TOKENS, INTEGRITY_REQUIRED, judgeIntegrity, modelIdLooksRight,
+} from './integrity.js';
 
 const now = () => Date.now();
+
+/** The long answer a local server is timed on during admission (not judged for content). */
+const SPEED_PROMPT = 'Write a short story of about 150 words about a lighthouse keeper who finds a message in a bottle.';
+const SPEED_TOKENS = 128;
+
+/**
+ * What a slow browser is told, in plain words. Everything in it was measured: the RTX 3060
+ * (Windows, Edge) that prompted this reached 5.4-5.6 tok/s in the browser, an RTX 2000 Ada -
+ * a slower card - reached 16.5 tok/s in Chrome on Linux, and llama.cpp on the same RTX 2000
+ * Ada reached 25.5. See docs/12GB-CARDS.md.
+ */
+export function slowReason(tps, min) {
+  return `Measured ${tps} tokens/s in this browser; the swarm needs at least ${min}. `
+    + 'That is often not your graphics card: in our tests an RTX 3060 ran this model about three times slower '
+    + 'in a browser on Windows than a weaker card did on Linux, and a card that runs out of video memory is '
+    + 'slower still. Your own chat still works. On Windows, the fastest way to share is to run the model '
+    + 'in llama.cpp and connect it with the command-line client (see "Share from llama.cpp" below).';
+}
 
 /** 22:00-06:00 at the provider's own desk, from the offset its browser reported. */
 export function isNightFor(tzOffsetMinutes = 0) {
@@ -97,7 +118,7 @@ export class Coordinator {
 
   // ------------------------------------------------------------- providers
 
-  async addProvider({ ws, user, isMock = false, adminOverride = false, userAgent = '', tzOffsetMinutes = null }) {
+  async addProvider({ ws, user, isMock = false, adminOverride = false, userAgent = '', tzOffsetMinutes = null, kind = 'browser' }) {
     const provider = {
       id: newId(),
       userId: Number(user.id),
@@ -105,6 +126,12 @@ export class Coordinator {
       isAdmin: Boolean(user.is_admin),
       ws,
       isMock,
+      // 'browser': the model runs in a WebGPU tab and measures itself.
+      // 'local':   the command-line client relays to the volunteer's own llama.cpp (or
+      //            other OpenAI-compatible) server; this server checks the model and
+      //            times it before admitting it - see startVerification().
+      kind: kind === 'local' ? 'local' : 'browser',
+      verification: null,
       adminOverride,
       userAgent: String(userAgent).slice(0, 200),
       tzOffsetMinutes: Number.isFinite(tzOffsetMinutes) ? tzOffsetMinutes : 0,
@@ -145,9 +172,114 @@ export class Coordinator {
         heartbeatMs: config.provider.heartbeatMs,
         adminOverride,
         isMock,
+        kind: provider.kind,
       },
     });
+    if (provider.kind === 'local') this.startVerification(provider);
     return provider;
+  }
+
+  // ------------------------------------------------------------- local servers
+
+  /**
+   * Admission for a local llama.cpp / LM Studio / Ollama server. The client relays seven
+   * prompts to its server: six short greedy ones whose answers must match Bonsai 2 27B
+   * (see integrity.js) and one long one that this server times, token by token, as the
+   * frames arrive. The provider's own claim about its speed is never asked for.
+   */
+  startVerification(provider) {
+    const tasks = INTEGRITY_PROMPTS.map((p, index) => ({
+      index, messages: [{ role: 'user', content: p.prompt }], maxTokens: INTEGRITY_MAX_TOKENS,
+    }));
+    tasks.push({ index: tasks.length, messages: [{ role: 'user', content: SPEED_PROMPT }], maxTokens: SPEED_TOKENS });
+    provider.verification = {
+      startedAt: now(),
+      results: tasks.map(() => ({ text: '', frames: 0, firstAt: null, lastAt: null, done: false })),
+      modelId: null,
+      timer: setTimeout(() => this.finishVerification(provider, 'timeout'), config.provider.verifyTimeoutMs),
+    };
+    provider.verification.timer.unref?.();
+    this.setState(provider, 'loading');
+    this.send(provider, { type: 'verify', temperature: 0, enableThinking: false, tasks });
+  }
+
+  handleVerifyDelta(provider, msg) {
+    const v = provider.verification;
+    const r = v?.results[Number(msg.index)];
+    if (!r || r.done || typeof msg.delta !== 'string' || !msg.delta) return;
+    const t = now();
+    r.firstAt ??= t;
+    r.lastAt = t;
+    r.frames += 1;
+    r.text += msg.delta.slice(0, config.provider.maxDeltaChars);
+  }
+
+  handleVerifyDone(provider, msg) {
+    const v = provider.verification;
+    const r = v?.results[Number(msg.index)];
+    if (!r || r.done) return;
+    r.done = true;
+    if (msg.modelId) v.modelId = String(msg.modelId).slice(0, 200);
+    if (msg.error) return this.finishVerification(provider, 'error', String(msg.error).slice(0, 300));
+    if (v.results.every((x) => x.done)) return this.finishVerification(provider, 'done');
+    return undefined;
+  }
+
+  async finishVerification(provider, outcome, detail = '') {
+    const v = provider.verification;
+    if (!v || v.finished) return;
+    v.finished = true;
+    clearTimeout(v.timer);
+    const speed = v.results[v.results.length - 1];
+    const seconds = speed.firstAt && speed.lastAt ? (speed.lastAt - speed.firstAt) / 1000 : 0;
+    const tps = speed.frames > 1 && seconds > 0 ? Math.min((speed.frames - 1) / seconds, config.provider.maxClaimedTps) : 0;
+    const verdict = judgeIntegrity(v.results.slice(0, -1).map((r) => r.text));
+    const min = config.provider.minDecodeTps;
+    const rounded = Math.round(tps * 10) / 10;
+
+    let reason = null;
+    if (outcome === 'timeout') reason = 'Your local server did not finish the admission test within '
+      + `${Math.round(config.provider.verifyTimeoutMs / 1000)} seconds.`;
+    else if (outcome === 'error') reason = `Your local server returned an error during the admission test: ${detail}`;
+    else if (!modelIdLooksRight(v.modelId)) reason = `Your local server says it is serving "${v.modelId || 'an unnamed model'}". `
+      + 'The swarm only serves Ternary Bonsai 2 27B - load Ternary-Bonsai-2-27B-PQ2_0.gguf (or PTQ1_0) and keep "bonsai" in the model name.';
+    else if (!verdict.passed) reason = `Your local server's answers match Ternary Bonsai 2 27B on ${verdict.matched} of ${verdict.total} `
+      + `test prompts; ${INTEGRITY_REQUIRED} are needed. That usually means a different model or quantisation is loaded `
+      + '(the swarm only serves the Ternary-Bonsai-2-27B GGUF, run with the PrismML llama.cpp build).';
+    let onlyTooSlow = false;
+    if (reason === null && tps < min) {
+      reason = `Your local server generated ${rounded} tokens/s during the test; the swarm needs at least ${min}.`;
+      onlyTooSlow = true;
+    }
+
+    // The admin override may admit a slow machine (testing), never a wrong model.
+    const admitted = reason === null || (provider.adminOverride && onlyTooSlow);
+    provider.admitted = admitted;
+    provider.decodeTps = rounded;
+    provider.claimedTps = rounded;
+    // This one was timed here, not claimed, so it counts as a server measurement.
+    if (tps > 0) provider.measuredTps = tps;
+    provider.gpuLabel = `llama.cpp-compatible server${v.modelId ? ` · ${String(v.modelId).split(/[\\/]/).pop()}` : ''}`.slice(0, 120);
+    this.log.info?.(`[coord] local provider ${provider.id.slice(0, 8)}: ${outcome}, integrity ${verdict.matched}/${verdict.total}, `
+      + `${rounded} tok/s, model ${v.modelId}, admitted=${admitted}`);
+    await pool.query(
+      'UPDATE provider_sessions SET admitted=$2, decode_tps=$3, ttft_ms=$4, gpu_label=$5 WHERE id=$1',
+      [provider.id, admitted, rounded, null, provider.gpuLabel],
+    ).catch((e) => this.log.error('[coord] provider_sessions update failed', e.message));
+    this.send(provider, {
+      type: 'admission',
+      admitted,
+      decodeTps: rounded,
+      minDecodeTps: min,
+      integrity: { matched: verdict.matched, total: verdict.total, required: INTEGRITY_REQUIRED },
+      modelId: v.modelId,
+      viaOverride: admitted && reason !== null,
+      reason,
+    });
+    if (admitted) {
+      provider.state = 'connecting';
+      this.setState(provider, 'ready');
+    } else { provider.state = 'rejected'; provider.creditedFrom = null; }
   }
 
   send(provider, message) {
@@ -174,11 +306,18 @@ export class Coordinator {
         if (state === 'loading') this.setState(provider, 'loading');
         else if (state === 'paused') this.setState(provider, 'paused');
         else if (state === 'ready' && provider.admitted) this.setState(provider, 'ready');
-        if (msg.gpuLabel) provider.gpuLabel = String(msg.gpuLabel).slice(0, 120);
+        // A local server's label is set from what this server verified, not from the client.
+        if (msg.gpuLabel && provider.kind !== 'local') provider.gpuLabel = String(msg.gpuLabel).slice(0, 120);
         return;
       }
       case 'benchmark':
+        // A local server is timed by this server during verification; it cannot claim a speed.
+        if (provider.kind === 'local') return undefined;
         return this.handleBenchmark(provider, msg);
+      case 'verify.delta':
+        return provider.kind === 'local' ? this.handleVerifyDelta(provider, msg) : undefined;
+      case 'verify.done':
+        return provider.kind === 'local' ? this.handleVerifyDone(provider, msg) : undefined;
       case 'job.delta':
         return this.handleDelta(provider, msg);
       case 'job.done':
@@ -235,7 +374,7 @@ export class Coordinator {
       viaOverride: provider.admitted && !fast,
       reason: provider.admitted
         ? null
-        : `Measured ${provider.decodeTps ?? 0} tokens/s, the network needs at least ${config.provider.minDecodeTps}. You can still chat, but your GPU will not be given other people's prompts.`,
+        : slowReason(Math.round((provider.decodeTps ?? 0) * 10) / 10, config.provider.minDecodeTps),
     });
     if (provider.admitted) this.setState(provider, 'ready');
     else { provider.state = 'rejected'; provider.creditedFrom = null; }
@@ -245,6 +384,7 @@ export class Coordinator {
     const provider = this.providers.get(providerId);
     if (!provider) return;
     this.providers.delete(providerId);
+    if (provider.verification) { clearTimeout(provider.verification.timer); provider.verification.finished = true; }
     await this.creditOnlineMinutes(provider).catch(() => {});
     if (provider.currentJobId) {
       const job = this.jobs.get(provider.currentJobId);
@@ -588,13 +728,24 @@ export class Coordinator {
   }
 
   /**
-   * Picks a provider at random among those that are ready.
+   * How fast this server believes a provider is: what it has timed itself when it has
+   * timed anything, otherwise the provider's own claim - but a claim counts for at most
+   * `unmeasuredTpsCap`, so a browser that lies about its speed cannot jump the queue.
+   * After its first real answer the measured number replaces the claim.
+   */
+  speedOf(p) {
+    if (p.measuredTps) return p.measuredTps;
+    return Math.min(Number(p.decodeTps) || 0, config.provider.unmeasuredTpsCap);
+  }
+
+  /**
+   * Faster providers first. Among the ready providers, only those within
+   * `fastTierShare` of the fastest one are considered, and one of those is picked at
+   * random - so equally fast volunteers share the work, and a slow machine is only
+   * given a prompt when every faster one is busy.
    *
-   * Deliberately NOT "the fastest": the speed a browser reports is self-declared, so
-   * ranking by it would hand every prompt in the network to whoever lies hardest.
-   * Random choice bounds a liar's share to 1/N and keeps prompts spread across
-   * volunteers. Server-measured throughput (measuredTps) is used only as a mild
-   * weight, and only after this server has timed the provider itself.
+   * Speed is not taken on trust: see speedOf(). A provider whose real throughput turns
+   * out lower is re-ranked after its first job, and demoted after two slow ones.
    */
   pickProvider(job) {
     const candidates = [];
@@ -606,14 +757,9 @@ export class Coordinator {
       candidates.push(p);
     }
     if (!candidates.length) return null;
-    const weightOf = (p) => (p.measuredTps ? Math.min(3, Math.max(0.5, p.measuredTps / config.provider.minDecodeTps)) : 1);
-    const total = candidates.reduce((sum, p) => sum + weightOf(p), 0);
-    let pick = Math.random() * total;
-    for (const p of candidates) {
-      pick -= weightOf(p);
-      if (pick <= 0) return p;
-    }
-    return candidates[candidates.length - 1];
+    const best = Math.max(...candidates.map((p) => this.speedOf(p)));
+    const tier = candidates.filter((p) => this.speedOf(p) >= best * config.provider.fastTierShare);
+    return tier[Math.floor(Math.random() * tier.length)] ?? candidates[0];
   }
 
   dispatch() {
@@ -649,7 +795,8 @@ export class Coordinator {
       job.sink.onAssigned?.({
         jobId: job.id,
         providerLabel: provider.gpuLabel || 'a volunteer GPU',
-        decodeTps: provider.decodeTps,
+        decodeTps: Math.round(this.speedOf(provider) * 10) / 10 || provider.decodeTps,
+        speedMeasured: Boolean(provider.measuredTps),
         attempt: job.attempts,
       });
       this.armIdleTimer(job, config.jobs.firstTokenTimeoutMs);

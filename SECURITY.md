@@ -77,6 +77,25 @@ puts a third party on the path, and it is worth being explicit about what that m
 * **The fallback's answers are as trustworthy as the upstream behind them.** Nothing here
   verifies them, exactly as nothing verifies a volunteer's output.
 
+## Local-server providers (`provide --local`)
+
+Since 19 Sep 2026 a provider can relay to its own llama.cpp (or other OpenAI-compatible)
+server instead of running the model in a browser tab. The coordinator treats it like any
+other provider — it counts the tokens it relays, pays for what reached the consumer, and
+times every answer — with two differences:
+
+* **It cannot claim a speed.** Its admission speed is what the coordinator timed while a
+  128-token answer streamed in; a `benchmark` message from such a socket is ignored.
+* **Its model is checked.** Six fixed prompts, answered greedily, must match Ternary
+  Bonsai 2 27B's own answers (`server/integrity.js`), and the model id the server reports
+  must contain "bonsai". This stops the honest mistake of loading the wrong file. It does
+  not stop a volunteer who patches the client to replay the expected strings and then
+  answers with another model — the same limit as for a patched browser, listed above
+  under the risks that remain by design.
+
+The client only connects outwards (to the local server and to the coordinator); it opens
+no port, and the local server never sees the volunteer's API token.
+
 ## Reporting
 
 Open an issue at https://github.com/fstandhartinger/bonsai-swarm/issues, or, for

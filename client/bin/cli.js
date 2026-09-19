@@ -4,6 +4,8 @@
  *
  *   bonsai-swarm login            store an API token from the website
  *   bonsai-swarm provide          share this machine's GPU (starts a browser)
+ *   bonsai-swarm provide --local http://127.0.0.1:8080
+ *                                 share it through your own llama.cpp server instead
  *   bonsai-swarm serve            local OpenAI / Responses / Anthropic endpoints
  *   bonsai-swarm litellm          the same three shapes through LiteLLM
  *   bonsai-swarm status           what the network and your account look like
@@ -17,6 +19,7 @@ import { writeFileSync } from 'node:fs';
 import { readConfig, writeConfig, requireAuth, DEFAULT_URL, configDir } from '../src/config.js';
 import { createLocalServer, MODEL_ID } from '../src/serve.js';
 import { launchBrowser, watchStatus, findChrome } from '../src/provide.js';
+import { runLocalProvider, probeLocalServer, normaliseBase } from '../src/local.js';
 import { chatCompletion, streamChunks } from '../src/upstream.js';
 
 const argv = process.argv.slice(2);
@@ -38,6 +41,10 @@ const USAGE = `bonsai-swarm - the Bonsai Swarm volunteer GPU network
   provide [--chrome PATH] [--override]
                                       share this machine's GPU: starts a browser that
                                       loads the model and serves the network
+  provide --local URL [--model ID] [--api-key KEY]
+                                      share through your own llama.cpp server (or another
+                                      OpenAI-compatible server running the Bonsai GGUF):
+                                      no browser, usually 2-5x faster on Windows
   serve [--port 4777] [--host 127.0.0.1] [--verbose]
                                       local API gateway:
                                         POST /v1/chat/completions  (OpenAI)
@@ -114,6 +121,7 @@ async function status() {
 
 async function provide() {
   const { url, token } = requireAuth();
+  if (flag('local')) return provideLocal({ url, token });
   console.log('Sharing this machine\'s GPU with the Bonsai Swarm network.');
   console.log('First run downloads about 5.9 GB of model weights into the browser profile below.');
   console.log('Other people\'s prompts will be processed on this computer. Close the browser window to stop.\n');
@@ -133,6 +141,29 @@ async function provide() {
   });
   process.on('SIGINT', () => { controller.abort(); child.kill(); process.exit(0); });
   await watchStatus({ url, token, signal: controller.signal });
+}
+
+async function provideLocal({ url, token }) {
+  const raw = flag('local');
+  if (typeof raw !== 'string') die('Usage: bonsai-swarm provide --local http://127.0.0.1:8080');
+  const base = normaliseBase(raw);
+  const apiKey = typeof flag('api-key') === 'string' ? flag('api-key') : null;
+  let probe;
+  try {
+    probe = await probeLocalServer(base, { apiKey, model: typeof flag('model') === 'string' ? flag('model') : null });
+  } catch (err) { die(err.message); }
+  console.log('Sharing your local model server with the Bonsai Swarm network.');
+  console.log(`  server   ${base}`);
+  console.log(`  model    ${probe.modelId}`);
+  console.log('Other people\'s prompts will be answered by that server. Ctrl-C to stop.\n');
+  if (!/bonsai/i.test(probe.modelId)) {
+    console.log(`Warning: "${probe.modelId}" does not look like Ternary Bonsai 2 27B. The swarm will check the answers`);
+    console.log('and refuse any other model.\n');
+  }
+  const run = runLocalProvider({ url, token, base, model: probe.modelId, apiKey, override: has('override') });
+  process.on('SIGINT', () => { run.stop(); process.exit(0); });
+  const result = await run.done;
+  process.exit(result.admitted === false ? 2 : 0);
 }
 
 async function serve() {

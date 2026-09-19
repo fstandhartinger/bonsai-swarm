@@ -6,6 +6,8 @@
 <title>Share my GPU — Bonsai Swarm</title>
 <meta name="description" content="Keep a tab open, let your graphics card answer other people's prompts and earn AI Coins.">
 <link rel="stylesheet" href="/app.css">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0f1512">
 </head>
 <body>
 <main class="wrap" style="padding-top:30px">
@@ -38,6 +40,13 @@
       </label>
     </div>
     <p class="small muted" style="margin:10px 0 0" id="start-hint"></p>
+
+    <!-- Shown when the speed test says no: what was measured, why, and what to do instead. -->
+    <div id="slow-card" class="notice warn" hidden style="margin-top:16px">
+      <b id="slow-title">Too slow to serve other people — your own chat still works.</b>
+      <p class="small" id="slow-reason" style="margin:6px 0 0"></p>
+      <p class="small" style="margin:6px 0 0"><a href="#local">Share from llama.cpp instead →</a></p>
+    </div>
 
     <div id="progress" hidden style="margin-top:18px">
       <div class="small muted label">preparing…</div>
@@ -93,6 +102,40 @@
     </div>
   </div>
 
+  <h2 id="local">Share from llama.cpp — the fast way on Windows</h2>
+  <div class="card">
+    <p style="margin-top:0">If you run the model in llama.cpp, the swarm can use that instead of this tab: no second copy of
+      the model in the browser, no 5.9 GB download here, and the full speed of your card. Measured on 19 Sep 2026: an
+      RTX 3060 made 5.5 tokens/s in Edge on Windows, where its owner gets 30–35 in llama.cpp; on our Linux test card
+      (RTX 2000 Ada) llama.cpp made 25.5 and the browser 16.5.</p>
+    <ol class="small">
+      <li>Get the <a href="https://github.com/PrismML-Eng/llama.cpp/releases/latest" rel="noopener">PrismML build of llama.cpp</a>
+        (stock llama.cpp cannot read these files) — on Windows with an NVIDIA card the <code>win-cuda-12.4-x64</code> zip plus the
+        matching <code>cudart</code> zip — and the model:
+        <a href="https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf/blob/main/Ternary-Bonsai-2-27B-PQ2_0.gguf" rel="noopener">Ternary-Bonsai-2-27B-PQ2_0.gguf</a>
+        (7.2 GB; the 5.9 GB <code>PTQ1_0</code> works too).</li>
+      <li>Start the server:
+        <pre>llama-server -m Ternary-Bonsai-2-27B-PQ2_0.gguf -ngl 99 -fa on -c 8192 --port 8080</pre></li>
+      <li>Install <a href="https://nodejs.org/" rel="noopener">Node.js</a> 22 or newer, download the
+        <a href="https://github.com/fstandhartinger/bonsai-swarm/archive/refs/heads/main.zip" rel="noopener">client</a>
+        (no install step, no dependencies), open a terminal in its <code>client</code> folder and run
+        <pre>node bin/cli.js login
+node bin/cli.js provide --local http://127.0.0.1:8080</pre>
+        <code>login</code> asks for an API token — create one on your <a href="/wallet.html">wallet page</a>.</li>
+    </ol>
+    <p class="small muted">Before your server gets anybody's prompt, the swarm sends it six short test prompts and compares
+      the answers with what Ternary Bonsai 2 27B itself says, then times one longer answer. Any other model — even Bonsai's
+      parent, Qwen3.8-27B — is refused, with a message that says why. The client talks to your server directly, not
+      through this page, so no CORS or firewall settings are needed and nothing on your machine is opened to the internet.</p>
+    <details class="small muted">
+      <summary style="cursor:pointer">LM Studio and Ollama?</summary>
+      <p>Both speak the same API (LM Studio's server on port 1234, Ollama on 11434), so
+        <code>provide --local http://127.0.0.1:1234</code> works with them once they can load the Bonsai file. Today they
+        ship stock llama.cpp, which rejects the <code>PQ2_0</code> and <code>PTQ1_0</code> formats, so use
+        <code>llama-server</code> from the PrismML build.</p>
+    </details>
+  </div>
+
   <h2>Achievements</h2>
   <div class="badges" id="badges"></div>
 
@@ -103,6 +146,10 @@
 
   <h2>Tips</h2>
   <div class="card small muted">
+    <p id="storage-tip">The model stays in this browser's storage between visits. The browser may still delete it
+      when your disk runs low — then it is simply downloaded again. To make it permanent, install this site as an app
+      (the install icon at the right of the address bar in Chrome and Edge) or bookmark it; both browsers then keep its
+      storage.</p>
     <p>The model runs in a Web Worker, so it keeps generating while this tab is in the background. Some systems still
       throttle a fully minimised window — leave the window visible but behind others, or use the command-line client,
       which starts a Chrome with the throttling switches turned off.</p>

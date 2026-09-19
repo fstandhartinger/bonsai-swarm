@@ -123,6 +123,14 @@ async function preflight(cfg) {
     });
   }
 
+  // Whether the 5.9 GB stay put. Only asking, not requesting: the request is made when
+  // the visitor presses Start, a user gesture, which is when Chrome and Edge decide.
+  const persisted = await navigator.storage?.persisted?.().catch(() => null);
+  if (persisted === true) {
+    checks.push({ ok: true, title: 'The model is kept between visits',
+      detail: 'This browser has marked the site\'s storage as persistent, so it will not be deleted to make room.' });
+  }
+
   const mobile = navigator.userAgentData?.mobile ?? /android|iphone|ipad|mobile/i.test(navigator.userAgent);
   if (mobile) {
     checks.push({ ok: false, blocking: true, title: 'This looks like a phone or tablet',
@@ -131,7 +139,15 @@ async function preflight(cfg) {
 
   checks.push({ ok: null, title: 'Graphics memory cannot be measured from a browser',
     detail: `No web API reports it. We measure the real thing instead: after the model loads, your browser is `
-      + `benchmarked and needs ${cfg.minDecodeTps} tokens/s to be admitted. An RTX 3090 managed 42, an 8 GB laptop 2.5.` });
+      + `benchmarked and needs ${cfg.minDecodeTps} tokens/s to be admitted. Measured so far: RTX 3090 on Linux 42, `
+      + 'RTX 2000 Ada on Linux 16.5, RTX 3060 in Edge on Windows 5.5, an 8 GB laptop that runs out of video memory 2.5.' });
+
+  const windows = (navigator.userAgentData?.platform || navigator.platform || navigator.userAgent).toLowerCase().includes('win');
+  if (windows) {
+    checks.push({ ok: null, title: 'On Windows, llama.cpp is much faster than the browser',
+      detail: 'In our tests an RTX 3060 ran this model at 5.5 tokens/s in Edge on Windows and 30-35 in llama.cpp. '
+        + 'The browser works, but sharing from llama.cpp (see below) is several times faster.' });
+  }
 
   const found = checks.filter((c) => c.blocking);
   // The mock provider and the admin override exist to exercise this page where there is
@@ -193,6 +209,7 @@ async function start(cfg) {
   // The checklist answered "can this machine do it?"; once it is doing it, the answer is
   // on screen below and the list is only in the way.
   $('#checks').hidden = true;
+  $('#slow-card').hidden = true;
   $('#force-wrap').hidden = true;
   $('#start-hint').hidden = true;
   $('#preflight-note').textContent = 'starting…';
@@ -205,11 +222,14 @@ async function start(cfg) {
   state.startedAt = Date.now();
   state.balanceAtStart = null;
 
+  // Asked here because this runs from the Start click: Chrome and Edge decide on a user
+  // gesture (and on whether the site is bookmarked or installed as an app).
   if (navigator.storage?.persist) {
     const persisted = await navigator.storage.persist().catch(() => false);
     log(persisted
-      ? 'Browser storage marked as persistent - the 5.9 GB download is kept between visits.'
-      : 'The browser would not mark storage as persistent; the model may have to be downloaded again later.');
+      ? 'The browser will keep the model between visits.'
+      : 'The model is stored in this browser. It stays there, but the browser may delete it if your disk runs low - '
+        + 'installing this site as an app (install icon in the address bar) or bookmarking it makes it permanent. See Tips below.');
   }
 
   setStatus('Starting the inference worker...', 'busy');
@@ -342,8 +362,11 @@ function onServerMessage(msg, cfg) {
         coinBurst($('#status'), 6);
         send({ type: 'status', state: 'ready' });
       } else {
-        setStatus('Too slow to serve other people - but your own chat still works.', 'bad');
         log(msg.reason || 'Not admitted.', 'error');
+        showSlow(msg);
+        // Nothing to do with the model any more: give the graphics memory back.
+        stop(`measured ${Number(msg.decodeTps || 0).toFixed(1)} tokens/s, the swarm needs ${msg.minDecodeTps}`);
+        setStatus('Too slow to serve other people - but your own chat still works.', 'bad');
       }
       return;
     case 'job.start':
@@ -361,6 +384,14 @@ function onServerMessage(msg, cfg) {
       return;
     default:
   }
+}
+
+/** The honest answer to "why not me?": the number, the bar, the likely reason and what to do. */
+function showSlow(msg) {
+  $('#slow-title').textContent = `Measured ${Number(msg.decodeTps || 0).toFixed(1)} tokens/s — the swarm needs ${msg.minDecodeTps}. `
+    + 'Your own chat still works.';
+  $('#slow-reason').textContent = msg.reason || '';
+  $('#slow-card').hidden = false;
 }
 
 function togglePause() {

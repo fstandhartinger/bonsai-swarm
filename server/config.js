@@ -121,7 +121,13 @@ export const config = {
   provider: {
     // Admission: measured decode speed must reach this, otherwise the browser may chat
     // but never serves strangers.
-    minDecodeTps: num('PROVIDER_MIN_DECODE_TPS', 10),
+    // 5 tok/s is about the speed people read (~220 words a minute), measured on
+    // 19 Sep 2026: RTX 3060 12 GB in Edge on Windows 5.4-5.6, RTX 2000 Ada in Chrome on
+    // Linux 16.5, Apple M-series 15.7, RTX 3090 42; an 8 GB RTX 4060 laptop that spills
+    // out of video memory 2.1-3.0. Faster providers are always asked first (see
+    // coordinator.pickProvider), so a 5 tok/s machine only answers when nobody faster
+    // is free - and the requester is shown its speed. Reasoning: docs/12GB-CARDS.md.
+    minDecodeTps: num('PROVIDER_MIN_DECODE_TPS', 5),
     benchmarkTokens: num('PROVIDER_BENCHMARK_TOKENS', 24),
     heartbeatMs: num('PROVIDER_HEARTBEAT_MS', 20000),
     // A provider that has not been heard from for this long is dropped.
@@ -137,6 +143,12 @@ export const config = {
     maxSessionsPerUser: num('PROVIDER_MAX_SESSIONS_PER_USER', 3),
     // Server-measured throughput below this, twice in a row, drops the admission.
     demoteAfterSlowJobs: num('PROVIDER_DEMOTE_AFTER_SLOW_JOBS', 2),
+    // Until this server has timed a provider, its self-reported speed counts for at most this.
+    unmeasuredTpsCap: num('PROVIDER_UNMEASURED_TPS_CAP', 20),
+    // Providers within this share of the fastest ready one are treated as equally fast.
+    fastTierShare: num('PROVIDER_FAST_TIER_SHARE', 0.75),
+    // How long a local llama.cpp server gets for the model check + speed test.
+    verifyTimeoutMs: num('PROVIDER_VERIFY_TIMEOUT_MS', 180000),
   },
 
   jobs: {
