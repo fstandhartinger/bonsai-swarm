@@ -74,16 +74,22 @@ export async function loadRuntime({ force = false } = {}) {
   } catch (err) {
     try {
       const code = await readFile(file, 'utf8');
+      const sha = crypto.createHash('sha256').update(code).digest('hex');
+      if (config.runtime.pinnedSha && sha !== config.runtime.pinnedSha) {
+        throw new Error(`disk runtime sha256 ${sha.slice(0, 16)}… does not match pin `
+          + `${config.runtime.pinnedSha.slice(0, 16)}…`);
+      }
       const info = await stat(file);
       cache = {
         code,
-        sha: crypto.createHash('sha256').update(code).digest('hex'),
+        sha,
         fetchedAt: Date.now(),
         source: `disk-cache (upstream failed: ${err.message})`,
         mtime: info.mtime,
       };
       return cache;
-    } catch {
+    } catch (diskErr) {
+      if (config.runtime.pinnedSha && /does not match pin/.test(diskErr.message)) throw diskErr;
       throw err;
     }
   }

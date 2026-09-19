@@ -255,10 +255,80 @@ test('the mock provider needs the shared test key; a normal account cannot fake 
   const token = await createToken(c);
   const bad = new MockProvider({ url: srv.url, token, testKey: 'wrong-key', tokens: 3 });
   providers.push(bad);
-  await bad.connect();
-  const provider = [...srv.coordinator.providers.values()][0];
-  assert.equal(provider.isMock, false, 'without the right key the connection is a normal provider, not a mock');
-  assert.equal(provider.adminOverride, false);
+  await assert.rejects(() => bad.connect(), /handshake 403/);
+  assert.equal(srv.coordinator.providers.size, 0);
+});
+
+test('a mock GPU is not given to a consumer who did not present the test key', async () => {
+  const host = client(srv.url); await signUp(host, 'mockgate');
+  await spawnProvider(await createToken(host), { tokens: 4 });
+  const user = client(srv.url); await signUp(user, 'organicuser');
+  const controller = new AbortController();
+  const res = await fetch(`${srv.url}/api/chat/stream`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: srv.url, cookie: user.cookie },
+    body: JSON.stringify({ messages: [{ role: 'user', content: 'hello' }], maxTokens: 8 }),
+    signal: controller.signal,
+  });
+  assert.equal(res.status, 200);
+  await waitFor(() => [...srv.coordinator.jobs.values()].some((j) => j.consumerId), 2000);
+  const job = [...srv.coordinator.jobs.values()][0];
+  assert.equal(job.status, 'queued');
+  assert.equal(job.providerId, null);
+  controller.abort();
+});
+
+test('a demoted provider cannot re-admit itself with another claimed benchmark', async () => {
+  const host = client(srv.url); await signUp(host, 'slowpoke');
+  const p = await spawnProvider(await createToken(host), { tokens: 8, delayMs: 80 });
+  const view = [...srv.coordinator.providers.values()][0];
+  view.slowJobs = 2;
+  view.admitted = false;
+  view.state = 'rejected';
+  await srv.coordinator.handleBenchmark(view, { decodeTps: 80, ttftMs: 10 });
+  assert.equal(view.admitted, false);
+  assert.equal(view.state, 'rejected');
+  assert.equal(view.decodeTps, view.measuredTps);
+});
+
+test('a demoted account stays demoted on a new socket', async () => {
+  const host = client(srv.url); const u = await signUp(host, 'slowpoke2');
+  await pool.query("UPDATE users SET provider_demoted_until = now() + interval '1 hour' WHERE id=$1", [u.id]);
+  const p = await spawnProvider(await createToken(host), { tokens: 4, decodeTps: 80 });
+  assert.equal(p.admitted, false);
+});
+
+test('jobs.error stores a short code, not provider-chosen text', async () => {
+  const host = client(srv.url); await signUp(host, 'errhost');
+  await spawnProvider(await createToken(host), { tokens: 1 });
+  const user = client(srv.url); const errUser = await signUp(user, 'erruser');
+  const [provider] = [...srv.coordinator.providers.values()];
+  const job = {
+    id: 'job-err-1',
+    consumerId: Number(errUser.id),
+    providerId: provider.id,
+    providerUserId: provider.userId,
+    promptTokens: 3,
+    completionTokens: 0,
+    maxNewTokens: 8,
+    status: 'running',
+    attempts: 1,
+    isMock: true,
+    sink: {},
+    createdAt: Date.now(),
+    queuedAt: Date.now(),
+    startedAt: Date.now(),
+    servedBy: 'community',
+    messages: [{ role: 'user', content: 'secret prompt that must not be stored' }],
+  };
+  srv.coordinator.jobs.set(job.id, job);
+  provider.currentJobId = job.id;
+  await srv.coordinator.finishJob(job.id, 'failed', {
+    error: 'secret prompt that must not be stored',
+    code: 'provider_error',
+  });
+  const { rows } = await pool.query('SELECT error FROM jobs WHERE id=$1', [job.id]);
+  assert.equal(rows[0].error, 'provider_error');
 });
 
 // --------------------------------------------------------- trust the server, not the browser

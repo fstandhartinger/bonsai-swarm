@@ -140,6 +140,9 @@ function attachProviderSocket(server, coordinator) {
       // Both need the shared TEST_MODE_KEY, so normal users can never reach them.
       const offeredKey = String(req.headers['x-test-mode-key'] || url.searchParams.get('testKey') || '');
       const testMode = Boolean(config.testModeKey) && offeredKey.length > 0 && timingSafeEqual(offeredKey, config.testModeKey);
+      if (url.searchParams.get('mock') === '1' && !testMode) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n'); return socket.destroy();
+      }
       const isMock = testMode && url.searchParams.get('mock') === '1';
       const adminOverride = (testMode || user.is_admin) && url.searchParams.get('override') === '1';
 
