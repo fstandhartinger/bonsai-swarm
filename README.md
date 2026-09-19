@@ -179,6 +179,13 @@ especially in German — can be confidently wrong. The UI says so too.
 * **Your prompts run on a stranger's computer.** Do not send personal or secret data.
   The same is true in reverse while you share.
 
+## Support
+
+Bonsai Swarm is a one-person hobby project, and the servers behind it are not free. If it is
+useful to you, you can **[support this project](https://donate.stripe.com/fZu00i9ro0wmdF88sg1Jm01)** with whatever amount you like — it buys
+no AI Coins and no priority. Payments go to productivity-boost.com Betriebs UG
+(haftungsbeschränkt) & Co. KG, the one-person company behind these projects.
+
 ## Credits
 
 * [Prism ML](https://huggingface.co/prism-ml) — Ternary Bonsai 2 27B

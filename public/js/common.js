@@ -160,6 +160,7 @@ export async function mountChrome({ me: preloaded } = {}) {
       el('a', { href: '/impressum.html', textContent: 'Impressum' }),
       el('a', { href: '/datenschutz.html', textContent: 'Datenschutz' }),
       el('a', { href: 'https://github.com/fstandhartinger/bonsai-swarm', textContent: 'GitHub' }),
+      el('a', { href: 'https://donate.stripe.com/fZu00i9ro0wmdF88sg1Jm01', rel: 'noopener', title: 'Pay what you want — helps cover the servers', textContent: '♥ Support this project' }),
       el('span', { className: 'muted', style: 'margin-left:auto', textContent: 'Model: Ternary Bonsai 2 27B · Prism ML · WebGPU kernels by Xenova' }))));
 
   if (!$('#toasts')) document.body.append(el('div', { id: 'toasts' }));
