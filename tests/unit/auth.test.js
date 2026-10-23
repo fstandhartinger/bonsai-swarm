@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startTestServer, resetDb, client, signUp, pool } from '../helpers.js';
+import { safeNext } from '../../server/auth.js';
 
 let srv;
 test.before(async () => { srv = await startTestServer(); });
@@ -71,6 +72,65 @@ test('a tampered session cookie is not accepted', async () => {
   const forged = client(srv.url);
   const res = await forged.req('/api/me', { headers: { cookie: 'bsw_session=eyJ1aWQiOjEsInN2IjoxfQ.deadbeef' } });
   assert.equal(res.json.signedIn, false);
+});
+
+test('ordinary logout emits Max-Age=0 with the same flags the session was issued with', async () => {
+  const c = client(srv.url);
+  await signUp(c, 'logoutflags');
+  const res = await c.req('/api/auth/logout', { method: 'POST' });
+  assert.equal(res.status, 200);
+  const setCookie = res.headers.getSetCookie?.() || [];
+  const session = setCookie.find((line) => line.startsWith('bsw_session='));
+  assert.ok(session, 'logout must Set-Cookie the session cookie');
+  assert.match(session, /Max-Age=0/i);
+  assert.match(session, /HttpOnly/i);
+  assert.match(session, /SameSite=Lax/i);
+  assert.match(session, /Path=\//i);
+});
+
+test('token-session rejects a raw API token', async () => {
+  const c = client(srv.url);
+  await signUp(c, 'handofftoken');
+  const created = await c.req('/api/tokens', { method: 'POST', body: { name: 'cli' } });
+  const rejected = await client(srv.url).req('/api/auth/token-session', { method: 'POST', body: { token: created.json.token } });
+  assert.equal(rejected.status, 401);
+});
+
+test('a hand-off code cannot be reused', async () => {
+  const c = client(srv.url);
+  await signUp(c, 'handoffonce');
+  const created = await c.req('/api/tokens', { method: 'POST', body: { name: 'cli' } });
+  const handoff = await fetch(`${srv.url}/api/auth/handoff`, {
+    method: 'POST', headers: { authorization: `Bearer ${created.json.token}`, origin: srv.url },
+  });
+  const { code } = await handoff.json();
+  const first = await client(srv.url).req('/api/auth/token-session', { method: 'POST', body: { code } });
+  assert.equal(first.status, 200);
+  const again = await client(srv.url).req('/api/auth/token-session', { method: 'POST', body: { code } });
+  assert.equal(again.status, 401);
+});
+
+test('token-session refuses a browser already signed in as somebody else', async () => {
+  const c = client(srv.url);
+  await signUp(c, 'handoffowner');
+  const created = await c.req('/api/tokens', { method: 'POST', body: { name: 'cli' } });
+  const handoff = await fetch(`${srv.url}/api/auth/handoff`, {
+    method: 'POST', headers: { authorization: `Bearer ${created.json.token}`, origin: srv.url },
+  });
+  const { code } = await handoff.json();
+  const other = client(srv.url);
+  await signUp(other, 'alreadyhere');
+  const clash = await other.req('/api/auth/token-session', { method: 'POST', body: { code } });
+  assert.equal(clash.status, 409);
+  assert.equal(clash.json.error, 'already_signed_in');
+});
+
+test('safeNext rejects protocol-relative and control-character targets', () => {
+  assert.equal(safeNext('/chat.html'), '/chat.html');
+  assert.equal(safeNext('https://evil.example'), '/chat.html');
+  assert.equal(safeNext('//evil.example'), '/chat.html');
+  assert.equal(safeNext('/\n/evil.example'), '/chat.html');
+  assert.equal(safeNext('/\t/evil.example'), '/chat.html');
 });
 
 test('logout everywhere invalidates the old cookie', async () => {

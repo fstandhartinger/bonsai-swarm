@@ -8,6 +8,14 @@ import { randomToken, sha256, signPayload, verifyPayload, timingSafeEqual, clien
 export const SESSION_COOKIE = 'bsw_session';
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 
+/** Same-origin relative path only. Control characters would let `/%0a/evil` become `//evil`. */
+export function safeNext(value, fallback = '/chat.html') {
+  const raw = String(value ?? '');
+  if (/[\u0000-\u001F\u007F]/.test(raw)) return fallback;
+  if (!/^\/[^/\\]/.test(raw)) return fallback;
+  return raw;
+}
+
 const USERNAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,31}$/;
 
 export function validateUsername(username) {
@@ -132,24 +140,28 @@ export async function findUserById(id) {
 
 // ---------------------------------------------------------------- sessions
 
+export function sessionCookieOpts({ maxAge = SESSION_TTL_SECONDS * 1000 } = {}) {
+  return {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: config.publicUrl.startsWith('https://'),
+    maxAge,
+    path: '/',
+  };
+}
+
 export function issueSession(res, user) {
   const token = signPayload(config.sessionSecret, {
     uid: Number(user.id),
     sv: user.session_version,
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
   });
-  res.cookie(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: config.publicUrl.startsWith('https://'),
-    maxAge: SESSION_TTL_SECONDS * 1000,
-    path: '/',
-  });
+  res.cookie(SESSION_COOKIE, token, sessionCookieOpts());
   return token;
 }
 
 export function clearSession(res) {
-  res.clearCookie(SESSION_COOKIE, { path: '/' });
+  res.clearCookie(SESSION_COOKIE, sessionCookieOpts({ maxAge: 0 }));
 }
 
 export async function userFromSessionToken(token) {
