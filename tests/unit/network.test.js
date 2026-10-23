@@ -202,13 +202,12 @@ test('a balance can never go negative: the request is refused with a friendly me
   await pool.query('UPDATE users SET balance = 0 WHERE id = $1', [u.id]);
   await pool.query("INSERT INTO ledger (user_id, kind, coins) VALUES ($1,'admin_adjust',$2)", [u.id, -1000]);
 
-  const stream = await openSse(srv.url, '/api/chat/stream', {
-    cookie: user.cookie, body: { messages: [{ role: 'user', content: 'can I still ask?' }] },
+  const res = await user.req('/api/chat/stream', {
+    method: 'POST', body: { messages: [{ role: 'user', content: 'can I still ask?' }] },
   });
-  await stream.until((e) => e.some((x) => x.event === 'error'), 8000);
-  const err = stream.events.find((e) => e.event === 'error').data;
-  assert.equal(err.code, 'insufficient_coins');
-  assert.match(err.error, /Share your GPU/);
+  assert.equal(res.status, 402);
+  assert.equal(res.json.error, 'insufficient_coins');
+  assert.match(res.json.message, /Share your GPU/);
   assert.equal(await balanceOf('poor'), 0);
 });
 

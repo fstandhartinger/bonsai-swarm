@@ -1,13 +1,9 @@
 import express from 'express';
 import crypto from 'node:crypto';
 import { config } from '../config.js';
-import { requireAuth } from '../auth.js';
-import { normalizeMessages } from './api.js';
-import { RateLimiter, clientIp } from '../util.js';
-
-// Same budget as the web chat: one account, so many requests a minute, whichever door
-// it comes through.
-const apiLimiter = new RateLimiter(config.limits.chatPerMinute, 60_000);
+import { requireAuth, isTestMode } from '../auth.js';
+import { normalizeMessages, accountChatLimiter, bufferingSink, servedByHeader } from './api.js';
+import { clientIp } from '../util.js';
 
 export const MODEL_NAME = 'bonsai-swarm/ternary-bonsai-2-27b';
 
@@ -36,7 +32,7 @@ export function openaiRouter(coordinator) {
   });
 
   router.post('/chat/completions', requireAuth, async (req, res) => {
-    if (!apiLimiter.take(`api:${req.user.id}`)) {
+    if (!accountChatLimiter.take(`chat:${req.user.id}`)) {
       return openaiError(res, 429, `At most ${config.limits.chatPerMinute} requests per minute.`,
         'rate_limit_error', 'rate_limited');
     }
@@ -70,6 +66,7 @@ export function openaiRouter(coordinator) {
         coordinator.submit({
           user: req.user, messages, maxNewTokens: maxTokens, enableThinking, sink,
           clientIp: clientIp(req, { trustProxy: config.trustProxy }),
+          allowMock: isTestMode(req),
         })
           .then((job) => { jobRef = job; })
           .catch((err) => resolve({ ok: false, summary: { error: err.message, code: err.code } }));
@@ -77,7 +74,8 @@ export function openaiRouter(coordinator) {
       res.on('close', () => { if (jobRef) coordinator.cancel(jobRef.id, req.user.id).catch(() => {}); });
       const result = await done;
       if (!result.ok) {
-        const status = result.summary.code === 'insufficient_coins' ? 402 : 503;
+        const status = result.summary.code === 'insufficient_coins' ? 402
+          : result.summary.code === 'too_many_requests' ? 429 : 503;
         res.set('x-bonsai-served-by', result.summary.servedBy || 'community');
         return openaiError(res, status, result.summary.error || 'The network could not answer this request.',
           'server_error', result.summary.code || null);
@@ -98,24 +96,43 @@ export function openaiRouter(coordinator) {
     }
 
     async function streaming() {
+      const buf = bufferingSink();
+      buf.sink.canReset = false;
+      let job = null;
+      let closed = false;
+      res.on('close', () => {
+        closed = true;
+        if (job) coordinator.cancel(job.id, req.user.id).catch(() => {});
+      });
+      try {
+        job = await coordinator.submit({
+          user: req.user, messages, maxNewTokens: maxTokens, enableThinking, sink: buf.sink,
+          clientIp: clientIp(req, { trustProxy: config.trustProxy }),
+          allowMock: isTestMode(req),
+        });
+      } catch (err) {
+        const status = err.code === 'insufficient_coins' ? 402
+          : err.code === 'too_many_requests' ? 429 : 503;
+        return openaiError(res, status, err.message, 'invalid_request_error', err.code || null);
+      }
+      if (closed) {
+        await coordinator.cancel(job.id, req.user.id).catch(() => {});
+        return;
+      }
       res.set({
         'content-type': 'text/event-stream; charset=utf-8',
         'cache-control': 'no-cache, no-transform',
         connection: 'keep-alive',
         'x-accel-buffering': 'no',
-        // Written before the answer exists, so this is the route the request is
-        // expected to take. `bonsai_swarm.served_by` in the final chunk is the fact.
-        'x-bonsai-served-by': coordinator.likelyRoute(),
+        'x-bonsai-served-by': servedByHeader(job, coordinator),
       });
       res.flushHeaders?.();
-      const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+      const send = (obj) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(obj)}\n\n`); };
       let first = true;
       let ended = false;
-      const end = () => { if (ended) return; ended = true; res.write('data: [DONE]\n\n'); res.end(); };
+      const end = () => { if (ended) return; ended = true; if (!res.writableEnded) { res.write('data: [DONE]\n\n'); res.end(); } };
 
       const sink = {
-        // Bytes already on the wire cannot be recalled, so a streamed API response is
-        // the one consumer that cannot be restarted on the fallback mid-answer.
         canReset: false,
         onFallback: (d) => {
           send({
@@ -143,17 +160,7 @@ export function openaiRouter(coordinator) {
           end();
         },
       };
-      let job;
-      try {
-        job = await coordinator.submit({
-          user: req.user, messages, maxNewTokens: maxTokens, enableThinking, sink,
-          clientIp: clientIp(req, { trustProxy: config.trustProxy }),
-        });
-      } catch (err) {
-        send({ error: { message: err.message, type: 'server_error', code: err.code || null } });
-        return end();
-      }
-      res.on('close', () => { coordinator.cancel(job.id, req.user.id).catch(() => {}); });
+      buf.attach(sink);
     }
   });
 

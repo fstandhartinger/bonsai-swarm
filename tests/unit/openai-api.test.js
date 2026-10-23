@@ -79,6 +79,47 @@ test('max_tokens is honoured and reported as finish_reason=length', async () => 
   assert.equal(res.json.choices[0].finish_reason, 'length');
 });
 
+test('streaming completions refuse empty balance with HTTP 402, not a 200 SSE stream', async () => {
+  const { user, userToken } = await networkWithProvider(5);
+  const me = await user.req('/api/me');
+  await pool.query('UPDATE users SET balance = 0 WHERE id = $1', [me.json.user.id]);
+  await pool.query("INSERT INTO ledger (user_id, kind, coins) VALUES ($1,'admin_adjust',$2)", [me.json.user.id, -1000]);
+  const res = await fetch(`${srv.url}/api/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${userToken}` },
+    body: JSON.stringify({ model: 'x', stream: true, messages: [{ role: 'user', content: 'hi' }] }),
+  });
+  assert.equal(res.status, 402);
+  assert.match(res.headers.get('content-type') || '', /json/);
+  const json = await res.json();
+  assert.equal(json.error.code, 'insufficient_coins');
+});
+
+test('streaming completions return HTTP 429 when the account is already at the concurrent cap', async () => {
+  const host = client(srv.url); await signUp(host, `h${Math.random().toString(36).slice(2, 8)}`);
+  const p = new MockProvider({
+    url: srv.url, token: await createToken(host), testKey: TEST_KEY, tokens: 40, delayMs: 40,
+  });
+  providers.push(p);
+  await p.connect();
+  const user = client(srv.url); await signUp(user, `u${Math.random().toString(36).slice(2, 8)}`);
+  const userToken = await createToken(user);
+  const start = () => fetch(`${srv.url}/api/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${userToken}` },
+    body: JSON.stringify({ stream: true, max_tokens: 40, messages: [{ role: 'user', content: 'hold' }] }),
+  });
+  const first = start();
+  const second = start();
+  await new Promise((r) => setTimeout(r, 40));
+  const third = await start();
+  assert.equal(third.status, 429);
+  for (const pending of [first, second]) {
+    const res = await pending;
+    res.body?.cancel?.();
+  }
+});
+
 test('an empty balance produces a 402 with an OpenAI-shaped error', async () => {
   const { user, userToken } = await networkWithProvider(5);
   const me = await user.req('/api/me');
