@@ -138,7 +138,12 @@ export async function openSse(baseUrl, path, { body, headers = {}, cookie = '' }
   const controller = new AbortController();
   const res = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', origin: baseUrl, ...(cookie ? { cookie } : {}), ...headers },
+    headers: {
+      'content-type': 'application/json', origin: baseUrl,
+      ...(cookie ? { cookie } : {}),
+      ...(TEST_KEY ? { 'x-test-mode-key': TEST_KEY } : {}),
+      ...headers,
+    },
     body: JSON.stringify(body),
     signal: controller.signal,
   });

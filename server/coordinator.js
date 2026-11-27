@@ -156,6 +156,13 @@ export class Coordinator {
       `INSERT INTO provider_sessions (id, user_id, is_mock) VALUES ($1,$2,$3)`,
       [provider.id, provider.userId, isMock],
     );
+    if (!adminOverride) {
+      const demote = await pool.query('SELECT provider_demoted_until FROM users WHERE id=$1', [provider.userId]);
+      const until = demote.rows[0]?.provider_demoted_until;
+      if (until && new Date(until).getTime() > Date.now()) {
+        provider.slowJobs = config.provider.demoteAfterSlowJobs;
+      }
+    }
     // Remembered so the "night owl" badge can ask what time it was where the GPU stands.
     if (Number.isFinite(tzOffsetMinutes)) {
       await pool.query('UPDATE users SET tz_offset_minutes=$2 WHERE id=$1',
@@ -323,7 +330,10 @@ export class Coordinator {
       case 'job.done':
         return this.handleJobDone(provider, msg);
       case 'job.error':
-        return this.finishJob(provider.currentJobId, 'failed', { error: String(msg.message || 'provider error').slice(0, 300) });
+        return this.finishJob(provider.currentJobId, 'failed', {
+          error: 'The volunteer GPU failed.',
+          code: 'provider_error',
+        });
       default:
         return;
     }
@@ -361,6 +371,26 @@ export class Coordinator {
     provider.decodeTps = Math.round(tps * 1000) / 1000;
     provider.ttftMs = Number.isFinite(ttft) ? Math.round(ttft) : null;
     const fast = tps >= config.provider.minDecodeTps;
+    const demoted = (provider.slowJobs || 0) >= config.provider.demoteAfterSlowJobs;
+    if (demoted && !provider.adminOverride) {
+      provider.admitted = false;
+      const recorded = Number.isFinite(provider.measuredTps) ? provider.measuredTps : null;
+      provider.decodeTps = recorded;
+      await pool.query(
+        'UPDATE provider_sessions SET admitted=false, decode_tps=$2, ttft_ms=$3, gpu_label=$4 WHERE id=$1',
+        [provider.id, recorded, provider.ttftMs, provider.gpuLabel],
+      );
+      this.send(provider, {
+        type: 'admission',
+        admitted: false,
+        decodeTps: recorded,
+        minDecodeTps: config.provider.minDecodeTps,
+        reason: `This GPU was demoted after slow jobs. Claimed ${tps} tokens/s does not restore admission.`,
+      });
+      provider.state = 'rejected';
+      provider.creditedFrom = null;
+      return;
+    }
     provider.admitted = fast || provider.adminOverride;
     await pool.query(
       'UPDATE provider_sessions SET admitted=$2, decode_tps=$3, ttft_ms=$4, gpu_label=$5 WHERE id=$1',
@@ -388,7 +418,7 @@ export class Coordinator {
     await this.creditOnlineMinutes(provider).catch(() => {});
     if (provider.currentJobId) {
       const job = this.jobs.get(provider.currentJobId);
-      if (job) {
+      if (job && !job.settling) {
         if (job.completionTokens === 0 && job.attempts < config.jobs.maxAttempts) this.requeue(job, `provider ${reason}`);
         else await this.giveUpOrFallback(job, `The GPU that was answering you went offline (${reason}).`);
       }
@@ -490,7 +520,7 @@ export class Coordinator {
     return this.withUserLock(opts.user.id, () => this.submitLocked(opts));
   }
 
-  async submitLocked({ user, messages, maxNewTokens, enableThinking = false, sink, clientIp = null }) {
+  async submitLocked({ user, messages, maxNewTokens, enableThinking = false, sink, clientIp = null, allowMock = false }) {
     const promptTokens = estimatePromptTokens(messages);
     const balance = Number((await pool.query('SELECT balance FROM users WHERE id=$1', [user.id])).rows[0]?.balance ?? 0);
     const reserved = this.reservedFor(user.id);
@@ -538,6 +568,7 @@ export class Coordinator {
       idleTimer: null,
       cappedByBalance: cap < Math.min(config.jobs.maxNewTokens, Number(maxNewTokens) || config.jobs.defaultMaxNewTokens),
       clientIp,
+      allowMock: Boolean(allowMock),
       servedBy: 'community',
       fallbackTimer: null,
       fallbackModel: null,
@@ -722,7 +753,10 @@ export class Coordinator {
     let total = 0;
     for (const job of this.jobs.values()) {
       if (job.consumerId !== Number(userId)) continue;
-      total += costForJob(job.promptTokens, job.maxNewTokens - job.completionTokens);
+      // Hold the original cap until settlement commits. Shrinking this as tokens
+      // stream (or deleting the job before the debit) lets a second request pass
+      // the same balance check.
+      total += costForJob(job.promptTokens, job.maxNewTokens);
     }
     return roundCoins(total);
   }
@@ -751,6 +785,7 @@ export class Coordinator {
     const candidates = [];
     for (const p of this.providers.values()) {
       if (p.state !== 'ready' || !p.admitted) continue;
+      if (p.isMock && !job.allowMock) continue;           // mock GPUs only serve test-mode consumers
       if (p.userId === job.consumerId) continue;          // no self-serving: own prompts never earn AI Coins
       if (job.triedProviders.has(p.id)) continue;
       if (now() - p.lastSeen > config.provider.staleMs) continue;
@@ -765,7 +800,7 @@ export class Coordinator {
   dispatch() {
     for (const jobId of [...this.queue]) {
       const job = this.jobs.get(jobId);
-      if (!job || job.status !== 'queued') { this.queue = this.queue.filter((id) => id !== jobId); continue; }
+      if (!job || job.settling || job.status !== 'queued') { this.queue = this.queue.filter((id) => id !== jobId); continue; }
       const provider = this.pickProvider(job);
       if (!provider) continue;
 
@@ -814,6 +849,7 @@ export class Coordinator {
   armIdleTimer(job, ms) {
     if (job.idleTimer) clearTimeout(job.idleTimer);
     job.idleTimer = setTimeout(() => {
+      if (job.settling) return;
       const provider = this.providers.get(job.providerId);
       if (provider) {
         this.send(provider, { type: 'job.cancel', jobId: job.id, reason: 'timeout' });
@@ -834,6 +870,7 @@ export class Coordinator {
    * API can (`sink.canReset`), a half-sent streamed HTTP response cannot.
    */
   async giveUpOrFallback(job, error) {
+    if (!job || job.settling) return;
     if (config.fallback.enabled && job.servedBy !== 'fallback'
         && (job.completionTokens === 0 || job.sink.canReset)) {
       return this.startFallback(job, 'provider-dropped');
@@ -842,6 +879,7 @@ export class Coordinator {
   }
 
   requeue(job, reason) {
+    if (!job || job.settling) return;
     if (job.status === 'done' || job.status === 'failed') return;
     if (job.idleTimer) { clearTimeout(job.idleTimer); job.idleTimer = null; }
     job.status = 'queued';
@@ -913,8 +951,8 @@ export class Coordinator {
    */
   async finishJob(jobId, status, { error = null, stopReason = null, code = null } = {}) {
     const job = this.jobs.get(jobId);
-    if (!job) return;
-    this.jobs.delete(jobId);
+    if (!job || job.settling) return;
+    job.settling = true;
     this.queue = this.queue.filter((id) => id !== jobId);
     if (job.idleTimer) { clearTimeout(job.idleTimer); job.idleTimer = null; }
     this.clearFallbackTimer(job);
@@ -939,6 +977,15 @@ export class Coordinator {
           provider.admitted = false;
           provider.state = 'rejected';
           provider.creditedFrom = null;
+          provider.decodeTps = measured;
+          await pool.query(
+            'UPDATE provider_sessions SET admitted=false, decode_tps=$2 WHERE id=$1',
+            [provider.id, measured],
+          );
+          await pool.query(
+            "UPDATE users SET provider_demoted_until = now() + interval '24 hours' WHERE id=$1",
+            [provider.userId],
+          );
           this.send(provider, {
             type: 'admission',
             admitted: false,
@@ -973,6 +1020,7 @@ export class Coordinator {
       : null;
 
     let charged = 0;
+    let settled = false;
     try {
       await withTransaction(async (client) => {
         await client.query(
@@ -982,7 +1030,7 @@ export class Coordinator {
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now(), $13, $14)`,
           [job.id, job.consumerId, job.providerUserId, status, job.promptTokens, completionTokens,
             decodeTps, job.startedAt ? job.startedAt - job.createdAt : null, durationMs, job.attempts,
-            job.isMock, error ? String(error).slice(0, 300) : null,
+            job.isMock, code ? String(code).slice(0, 40) : (error ? 'job_error' : null),
             job.servedBy || 'community', job.fallbackModel || null],
         );
         if (cost > 0) {
@@ -1032,6 +1080,7 @@ export class Coordinator {
           });
         }
       });
+      settled = true;
     } catch (err) {
       this.log.error('[coord] settlement failed', err.message);
     }
@@ -1057,9 +1106,14 @@ export class Coordinator {
       servedBy: job.servedBy || 'community',
       fallbackModel: job.fallbackModel || null,
     };
-    if (status === 'done' || status === 'cancelled') job.sink.onDone?.(summary);
-    else job.sink.onError?.(summary);
-    this.dispatch();
+    try {
+      if (status === 'done' || status === 'cancelled') job.sink.onDone?.(summary);
+      else job.sink.onError?.(summary);
+      this.dispatch();
+    } finally {
+      if (settled) this.jobs.delete(jobId);
+      else job.settling = false;
+    }
   }
 
   // ------------------------------------------------------------- stats

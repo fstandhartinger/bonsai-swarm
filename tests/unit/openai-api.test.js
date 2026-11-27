@@ -36,7 +36,7 @@ test('non-streaming chat completion returns the full answer and usage', async ()
   const { userToken } = await networkWithProvider(5);
   const res = await client(srv.url).req('/api/v1/chat/completions', {
     method: 'POST',
-    headers: { authorization: `Bearer ${userToken}` },
+    headers: { authorization: `Bearer ${userToken}`, 'x-test-mode-key': TEST_KEY },
     body: { model: 'bonsai-swarm/ternary-bonsai-2-27b', messages: [{ role: 'user', content: 'hello' }] },
   });
   assert.equal(res.status, 200);
@@ -52,7 +52,7 @@ test('streaming chat completion emits OpenAI chunks and ends with [DONE]', async
   const { userToken } = await networkWithProvider(4);
   const res = await fetch(`${srv.url}/api/v1/chat/completions`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${userToken}` },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${userToken}`, 'x-test-mode-key': TEST_KEY },
     body: JSON.stringify({ model: 'x', stream: true, messages: [{ role: 'user', content: 'stream please' }] }),
   });
   assert.equal(res.status, 200);
@@ -72,7 +72,7 @@ test('max_tokens is honoured and reported as finish_reason=length', async () => 
   const { userToken } = await networkWithProvider(20);
   const res = await client(srv.url).req('/api/v1/chat/completions', {
     method: 'POST',
-    headers: { authorization: `Bearer ${userToken}` },
+    headers: { authorization: `Bearer ${userToken}`, 'x-test-mode-key': TEST_KEY },
     body: { model: 'x', max_tokens: 3, messages: [{ role: 'user', content: 'be brief' }] },
   });
   assert.equal(res.json.usage.completion_tokens, 3);
