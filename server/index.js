@@ -36,7 +36,8 @@ export async function createServer({ migrateDb = true } = {}) {
   app.use((req, res, next) => {
     res.cookie = (name, value, opts = {}) => {
       const parts = [`${name}=${encodeURIComponent(value)}`];
-      if (opts.maxAge) parts.push(`Max-Age=${Math.floor(opts.maxAge / 1000)}`);
+      // `maxAge: 0` must still emit Max-Age=0; a truthy check dropped logout cookies.
+      if (opts.maxAge != null) parts.push(`Max-Age=${Math.max(0, Math.floor(Number(opts.maxAge) / 1000))}`);
       parts.push(`Path=${opts.path || '/'}`);
       if (opts.httpOnly) parts.push('HttpOnly');
       if (opts.secure) parts.push('Secure');
