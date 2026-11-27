@@ -5,10 +5,10 @@ import {
 
 const params = new URLSearchParams(location.search);
 // Automated tests only: a deterministic fake model instead of a real WebGPU run.
-// The server only treats it as a mock when the shared test key matches, so this does
-// nothing for a normal visitor.
-const MOCK = params.get('provider') === 'mock';
+// Both the query flag and the shared test key are required; a visitor who only has
+// `?provider=mock` still loads the real worker (and the server will refuse mock=1).
 const TEST_KEY = params.get('testKey') || '';
+const MOCK = params.get('provider') === 'mock' && Boolean(TEST_KEY);
 const ADMIN_OVERRIDE = params.get('override') === '1';
 // The downloadable client opens this page because the user typed `provide`; it does not
 // need a second click. Never set for somebody who just browsed here.
@@ -25,6 +25,7 @@ const state = {
   tokens: 0,
   startedAt: null,
   reconnectTimer: null,
+  currentJobId: null,
   benchmarkDone: false,
   sessionCoins: 0,
   balanceAtStart: null,
@@ -35,13 +36,21 @@ const ui = {};
 
 async function boot() {
   // The downloadable client opens this page with #code=... - a single-use, 60-second
-  // hand-off code, never the API token itself. The fragment never reaches a log.
-  if (location.hash.startsWith('#code=') || location.hash.startsWith('#token=')) {
-    const isCode = location.hash.startsWith('#code=');
-    const value = decodeURIComponent(location.hash.slice(isCode ? 6 : 7));
+  // hand-off code. A long-lived #token= is ignored: that would be a durable login URL.
+  let refuseAutostart = false;
+  if (location.hash.startsWith('#code=')) {
+    const value = decodeURIComponent(location.hash.slice(6));
     history.replaceState(null, '', location.pathname + location.search);
-    await api('/api/auth/token-session', { method: 'POST', body: isCode ? { code: value } : { token: value } })
-      .catch((err) => { if (err.code === 'already_signed_in') alert(err.message); });
+    try {
+      await api('/api/auth/token-session', { method: 'POST', body: { code: value } });
+    } catch (err) {
+      if (err.code === 'already_signed_in') {
+        alert(err.message);
+        refuseAutostart = true;
+      }
+    }
+  } else if (location.hash.startsWith('#token=')) {
+    history.replaceState(null, '', location.pathname + location.search);
   }
   const me = await mountChrome();
   if (!requireSignIn(me)) return;
@@ -72,7 +81,7 @@ async function boot() {
   window.addEventListener('beforeunload', () => { try { state.ws?.close(); } catch { /* closing anyway */ } });
   setInterval(refreshStats, 15000);
   refreshStats();
-  if (AUTOSTART) start(cfg);
+  if (AUTOSTART && !refuseAutostart) start(cfg);
 }
 
 /**
@@ -232,8 +241,15 @@ async function start(cfg) {
         + 'installing this site as an app (install icon in the address bar) or bookmarking it makes it permanent. See Tips below.');
   }
 
+  if (MOCK) {
+    // The fake worker only starts after the coordinator confirms isMock. A visitor
+    // with `?provider=mock&testKey=anything` must not earn as a real GPU.
+    setStatus('Checking test mode with the coordinator...', 'busy');
+    connect(cfg);
+    return;
+  }
   setStatus('Starting the inference worker...', 'busy');
-  state.worker = MOCK ? mockWorker() : new Worker('/js/bonsai-worker.js', { type: 'module' });
+  state.worker = new Worker('/js/bonsai-worker.js', { type: 'module' });
   state.worker.onmessage = (e) => onWorkerMessage(e.data, cfg);
   state.worker.onerror = (e) => { log(`Worker error: ${e.message}`, 'error'); stop('the worker crashed'); };
   state.worker.postMessage({ cmd: 'check' });
@@ -287,6 +303,7 @@ function onWorkerMessage(msg, cfg) {
       return;
 
     case 'job-done':
+      if (state.currentJobId === msg.jobId) state.currentJobId = null;
       state.jobs += 1;
       rollTo($('#jobs-served'), state.jobs, { format: fmt.int, ms: 400 });
       rollTo($('#tokens-served'), state.tokens, { format: fmt.int, ms: 400 });
@@ -298,6 +315,7 @@ function onWorkerMessage(msg, cfg) {
       return;
 
     case 'job-error':
+      if (state.currentJobId === msg.jobId) state.currentJobId = null;
       send({ type: 'job.error', jobId: msg.jobId, message: msg.message });
       log(`A request failed: ${msg.message}`, 'error');
       return;
@@ -314,6 +332,10 @@ function onWorkerMessage(msg, cfg) {
 // ------------------------------------------------------------------ network
 
 function connect(cfg) {
+  if (state.reconnectTimer) { clearTimeout(state.reconnectTimer); state.reconnectTimer = null; }
+  if (state.ws && state.ws.readyState < 2) {
+    try { state.ws.onclose = null; state.ws.close(); } catch { /* replacing this socket */ }
+  }
   const url = new URL('/ws/provider', location.href);
   url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   if (MOCK) url.searchParams.set('mock', '1');
@@ -327,6 +349,15 @@ function connect(cfg) {
   ws.onopen = () => log('Connected to the coordinator.');
   ws.onmessage = (e) => onServerMessage(JSON.parse(e.data), cfg);
   ws.onclose = () => {
+    if (state.currentJobId) {
+      state.worker?.postMessage({ cmd: 'cancel', jobId: state.currentJobId });
+      state.currentJobId = null;
+    }
+    if (MOCK && !state.worker) {
+      log('The coordinator refused mock mode (missing or wrong test key).', 'error');
+      stop('mock refused');
+      return;
+    }
     if (!state.sharing) return;
     setStatus('Connection lost - reconnecting...', 'busy');
     log('Connection to the coordinator lost, retrying in 5 s.', 'error');
@@ -342,6 +373,19 @@ function send(msg) {
 function onServerMessage(msg, cfg) {
   switch (msg.type) {
     case 'welcome':
+      if (MOCK) {
+        if (!msg.config?.isMock) {
+          log('The coordinator refused mock mode. The test key must match TEST_MODE_KEY.', 'error');
+          stop('mock refused');
+          return;
+        }
+        if (!state.worker) {
+          state.worker = mockWorker();
+          state.worker.onmessage = (e) => onWorkerMessage(e.data, cfg);
+          state.worker.onerror = (e) => { log(`Worker error: ${e.message}`, 'error'); stop('the worker crashed'); };
+          state.worker.postMessage({ cmd: 'check' });
+        }
+      }
       // After a reconnect the model is still loaded - just replay the measurement.
       if (state.benchmarkDone) {
         send({ type: 'benchmark', decodeTps: state.decodeTps, ttftMs: 0 });
@@ -370,6 +414,11 @@ function onServerMessage(msg, cfg) {
       }
       return;
     case 'job.start':
+      if (state.currentJobId && state.currentJobId !== msg.jobId) {
+        send({ type: 'job.error', jobId: msg.jobId, message: 'busy' });
+        return;
+      }
+      state.currentJobId = msg.jobId;
       setStatus('Answering a request from the network...', 'busy');
       state.worker.postMessage({
         cmd: 'generate',
@@ -380,6 +429,7 @@ function onServerMessage(msg, cfg) {
       });
       return;
     case 'job.cancel':
+      if (state.currentJobId === msg.jobId) state.currentJobId = null;
       state.worker.postMessage({ cmd: 'cancel', jobId: msg.jobId });
       return;
     default:

@@ -23,10 +23,21 @@ export const svg = (markup) => {
 
 export const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+function testModeHeaders() {
+  try {
+    const fromQuery = new URLSearchParams(location.search).get('testKey');
+    if (fromQuery) sessionStorage.setItem('bsw-test-key', fromQuery);
+    const key = fromQuery || sessionStorage.getItem('bsw-test-key');
+    return key ? { 'x-test-mode-key': key } : {};
+  } catch {
+    return {};
+  }
+}
+
 export async function api(path, { method = 'GET', body, headers = {} } = {}) {
   const res = await fetch(path, {
     method,
-    headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...headers },
+    headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...testModeHeaders(), ...headers },
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
@@ -294,7 +305,7 @@ export async function pollProfile({ origin = null } = {}) {
 export async function streamSse(path, body, handlers, signal) {
   const res = await fetch(path, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...testModeHeaders() },
     body: JSON.stringify(body),
     signal,
   });
