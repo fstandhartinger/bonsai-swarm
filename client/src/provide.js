@@ -98,20 +98,19 @@ export async function handoffCode({ url, token }) {
   return code;
 }
 
-export function buildArgs({ url, token, code, profileDir, extraFlags = [], override = false, autostart = true }) {
+export function buildArgs({ url, code, profileDir, extraFlags = [], override = false, autostart = true }) {
+  if (!code) throw new Error('A hand-off code is required; the API token must not appear in a URL.');
   const target = new URL('/share.html', url);
   if (override) target.searchParams.set('override', '1');
   // The user asked for `provide` on the command line, so the page does not ask again.
   if (autostart) target.searchParams.set('autostart', '1');
-  // The token travels in the fragment: fragments are never sent to a server and never
-  // appear in an access log.
   return [
     ...CHROME_FLAGS,
     ...(process.platform === 'linux' ? LINUX_WEBGPU_FLAGS : []),
     ...extraFlags,
     `--user-data-dir=${profileDir}`,
     '--new-window',
-    `${target.toString()}#${code ? `code=${encodeURIComponent(code)}` : `token=${encodeURIComponent(token)}`}`,
+    `${target.toString()}#code=${encodeURIComponent(code)}`,
   ];
 }
 
